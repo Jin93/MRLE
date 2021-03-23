@@ -334,7 +334,16 @@ names(ivindk) = traitvec
 
 output = mrle(sumtable, thetak.sign, Cov.mat, alpha0, ivindk)
 ```
-
+This gives the output
+```r
+          M       P-value Reject Direction
+IVW.IL6  25  0.000000e+00      1        -1
+IVW.IL8  33  0.000000e+00      1         1
+IVW.TNF  31  0.000000e+00      1         1
+IVW.MCP1 17  0.000000e+00      1        -1
+IVW.CRP   7 3.790054e-271      1         1
+MRLE     55  9.313389e-23      1         1
+```
 
 ###  References:
       1. Bulik-Sullivan, B., Finucane, H.K., Anttila, V., Gusev, A., Day, F.R., Loh, P.R., Duncan, L., Perry, J.R., Patterson, N., Robinson, E.B. and Daly, M.J., 2015. An atlas of genetic correlations across human diseases and traits. Nature genetics, 47(11), p.1236. [https://www.nature.com/articles/ng.3406.pdf?origin=ppub](https://www.nature.com/articles/ng.3406.pdf?origin=ppub)
