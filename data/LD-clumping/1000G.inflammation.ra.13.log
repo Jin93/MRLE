@@ -1,0 +1,27 @@
+PLINK v2.00a3LM 64-bit Intel (31 Aug 2020)
+Options in effect:
+  --bfile /dcl01/chatterj/data/diptavo/1KG/1000G_bial_nochild_europeans
+  --extract data/LD-clumping/snpinfo.inflammation.ra.13.bim
+  --make-bed
+  --out data/LD-clumping/1000G.inflammation.ra.13
+
+Hostname: compute-115.cm.cluster
+Working directory: /users/jjin/MRLE
+Start time: Tue Mar 23 02:01:52 2021
+
+Random number seed: 1616479312
+773679 MiB RAM detected; reserving 386839 MiB for main workspace.
+Allocated 38726 MiB successfully, after larger attempt(s) failed.
+Using up to 48 threads (change this with --threads).
+498 samples (0 females, 0 males, 498 ambiguous; 498 founders) loaded from
+/dcl01/chatterj/data/diptavo/1KG/1000G_bial_nochild_europeans.fam.
+80855722 variants loaded from
+/dcl01/chatterj/data/diptavo/1KG/1000G_bial_nochild_europeans.bim.
+Note: No phenotype data present.
+--extract: 3 variants remaining.
+3 variants remaining after main filters.
+Writing data/LD-clumping/1000G.inflammation.ra.13.fam ... done.
+Writing data/LD-clumping/1000G.inflammation.ra.13.bim ... done.
+Writing data/LD-clumping/1000G.inflammation.ra.13.bed ... done.
+
+End time: Tue Mar 23 02:02:08 2021

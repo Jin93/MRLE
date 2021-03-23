@@ -8,22 +8,22 @@ Options in effect:
   --clump-r2 0.05
   --out data/LD-clumping/inflammation.ra.20
 
-Hostname: compute-110.cm.cluster
+Hostname: compute-115.cm.cluster
 Working directory: /users/jjin/MRLE
-Start time: Mon Mar 22 01:42:06 2021
+Start time: Tue Mar 23 02:06:12 2021
 
-Random number seed: 1616391726
-128507 MB RAM detected; reserving 64253 MB for main workspace.
-Allocated 36141 MB successfully, after larger attempt(s) failed.
-19 variants loaded from .bim file.
+Random number seed: 1616479572
+773679 MB RAM detected; reserving 386839 MB for main workspace.
+Allocated 38726 MB successfully, after larger attempt(s) failed.
+2 variants loaded from .bim file.
 498 people (0 males, 0 females, 498 ambiguous) loaded from .fam.
 Ambiguous sex IDs written to data/LD-clumping/inflammation.ra.20.nosex .
 Using 1 thread (no multithreaded calculations invoked).
 Before main variant filters, 498 founders and 0 nonfounders present.
 Calculating allele frequencies... done.
-19 variants and 498 people pass filters and QC.
+2 variants and 498 people pass filters and QC.
 Note: No phenotypes present.
---clump: 7 clumps formed from 19 top variants.
+--clump: 2 clumps formed from 2 top variants.
 Results written to data/LD-clumping/inflammation.ra.20.clumped .
 
-End time: Mon Mar 22 01:42:06 2021
+End time: Tue Mar 23 02:06:12 2021

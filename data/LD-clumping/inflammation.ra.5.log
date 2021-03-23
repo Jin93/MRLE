@@ -8,13 +8,13 @@ Options in effect:
   --clump-r2 0.05
   --out data/LD-clumping/inflammation.ra.5
 
-Hostname: compute-110.cm.cluster
+Hostname: compute-115.cm.cluster
 Working directory: /users/jjin/MRLE
-Start time: Mon Mar 22 01:42:04 2021
+Start time: Tue Mar 23 02:06:09 2021
 
-Random number seed: 1616391724
-128507 MB RAM detected; reserving 64253 MB for main workspace.
-Allocated 36141 MB successfully, after larger attempt(s) failed.
+Random number seed: 1616479569
+773679 MB RAM detected; reserving 386839 MB for main workspace.
+Allocated 38726 MB successfully, after larger attempt(s) failed.
 Error: Failed to open data/LD-clumping/1000G.inflammation.ra.5.bed.
 
-End time: Mon Mar 22 01:42:04 2021
+End time: Tue Mar 23 02:06:09 2021
