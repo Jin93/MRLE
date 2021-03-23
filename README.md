@@ -22,7 +22,6 @@ library(MendelianRandomization) # for conducting test based on the IVW estimator
 ### Step 1: data preparation
 
 #### Data sources (All GWAS samples are of European ancestry):
-
        1. GWAS summary data for RA   
     Okada, Y., Wu, D., Trynka, G., Raj, T., Terao, C., Ikari, K., Kochi, Y., Ohmura, K., Suzuki, A., Yoshida, S. and Graham, R.R., 2014. Genetics of rheumatoid arthritis contributes to biology and drug discovery. Nature, 506(7488), pp.376-381.
        2. GWAS summary data for CRP   
@@ -47,7 +46,6 @@ maf.thr = 0.01
 ```
 
 #### Before running the following R code, please unzip the following example data files and store them in data/ folder.
-
        1. data/sumdata_IL6.txt.zip  
        2. data/sumdata_IL8.txt.zip  
        3. data/sumdata_TNF.txt.zip  
@@ -55,7 +53,6 @@ maf.thr = 0.01
        5. data/sumdata_CRP.txt.zip 
 
 #### Please note that these input GWAS data should be pre-processed by a SNP filtering step, where the SNPs that have one or more of the following conditions are removed:
-
     1. MAF < 0.01  
     2. Effective sample size < 0.67 * 0.9 percentile
     3. Within the major histocompatibility complex (MHC) region ( 26Mb \~ 34Mb on chromosome 6)
