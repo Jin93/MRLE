@@ -3,8 +3,6 @@
 R package for Mendelian Randomization analysis for latent exposures (MRLE)<sup>1</sup> . The method uses GWAS summary-level association statistics of the outcome and K>=3 observable traits/biomarkers on a set of SNPs (instrumental variables) that are associated with at least two of the traits at specified thresholds of significance. The method uses an underlying structural equation model to describe causal paths between the SNPs, the latent exposure, the traits co-regulated by the exposure, and the outcome. A series of estimating functions are then constructed by equating the second-order sample moments of the summary-level association statistics with the corresponding theoretical moments, based on which inference for the model parameters can be done via Generalized Method of Moments.
 
 
-## Contents
-
 ## Installation
 
 ``` r
@@ -18,19 +16,21 @@ library(MendelianRandomization) # for conducting test based on the IVW estimator
 # setwd('~/MRLE/') # set path to the Github directory
 ```
 
-## An example - testing the causal effect of chronic inflammation on rheumatoid arthritis (RA)
+## Example data analysis
+### Testing the causal effect of chronic inflammation on rheumatoid arthritis (RA)
 
 ### Step 1: data preparation
 
-#### data sources:
-    1. GWAS summary data for RA   
+#### Data sources (All GWAS samples are of European ancestry):
+
+       1. GWAS summary data for RA   
     Okada, Y., Wu, D., Trynka, G., Raj, T., Terao, C., Ikari, K., Kochi, Y., Ohmura, K., Suzuki, A., Yoshida, S. and Graham, R.R., 2014. Genetics of rheumatoid arthritis contributes to biology and drug discovery. Nature, 506(7488), pp.376-381.
-    2. GWAS summary data for CRP   
+       2. GWAS summary data for CRP   
     GWAS on 320041 unrelated UK Biobank individuals
-    3. GWAS summary data for IL1, IL6, IL8, TNP-alpha and MCP-1  
+       3. GWAS summary data for IL1, IL6, IL8, TNP-alpha and MCP-1  
     Ahola-Olli, A.V., Würtz, P., Havulinna, A.S., Aalto, K., Pitkänen, N., Lehtimäki, T., Kähönen, M., Lyytikäinen, L.P., Raitoharju, E., Seppälä, I. and Sarin, A.P., 2017. Genome-wide association study identifies 27 loci influencing concentrations of circulating cytokines and growth factors. The American Journal of Human Genetics, 100(1), pp.40-50.
 
-All GWAS samples are of European ancestry.
+
 
 ``` r
 library(MRLE)
@@ -46,20 +46,22 @@ z0 = qnorm(p=alpha0/2,lower.tail=FALSE)
 maf.thr = 0.01
 ```
 
-Before running the following R code, please unzip the following example data files and store them in data/ folder.
-    1. data/sumdata_IL6.txt.zip  
-    2. data/sumdata_IL8.txt.zip  
-    3. data/sumdata_TNF.txt.zip  
-    4. data/sumdata_MCP1.txt.zip  
-    5. data/sumdata_CRP.txt.zip 
+#### Before running the following R code, please unzip the following example data files and store them in data/ folder.
 
-Please note that these input GWAS data should be pre-processed by a SNP filtering step, where the SNPs that have one or more of the following conditions are removed:
+       1. data/sumdata_IL6.txt.zip  
+       2. data/sumdata_IL8.txt.zip  
+       3. data/sumdata_TNF.txt.zip  
+       4. data/sumdata_MCP1.txt.zip  
+       5. data/sumdata_CRP.txt.zip 
+
+#### Please note that these input GWAS data should be pre-processed by a SNP filtering step, where the SNPs that have one or more of the following conditions are removed:
+
     1. MAF < 0.01  
     2. Effective sample size < 0.67 * 0.9 percentile
     3. Within the major histocompatibility complex (MHC) region ( 26Mb \~ 34Mb on chromosome 6)
     4. Alleles do not match those in the 1000 Genomes Project.
 
-Then we use the following code to merge GWAS summary statistics of the biomarkers:
+#### We then use the following code to merge GWAS summary statistics of the biomarkers:
 ``` r
 sumdata1 = bigreadr::fread2(paste0('data/sumdata_',traitvec[1],'.txt'))
 for (k in 2:K){
@@ -71,7 +73,7 @@ sumbiomarkers = sumdata1; rm(sumdata1)
 # write_delim(sumbiomarkers, file='data/sumbiomarkers.txt', delim='\t')
 ```
 
-Load GWAS summary data for the outcome
+#### Load GWAS summary data for the outcome
 ``` r
 sumoutcome = bigreadr::fread2('data/raw_sumdata_ra.txt')
 sumoutcome$SE = log(sumoutcome$`OR(A1)`)/sumoutcome$z
@@ -92,7 +94,7 @@ names(sumoutcome)[2:ncol(sumoutcome)] = paste0(names(sumoutcome)[2:ncol(sumoutco
 sumoutcome$rsid = as.character(sumoutcome$rsid)
 ```
 
-Combine it with GWAS summary data for the biomarkers
+#### Combine it with GWAS summary data for the biomarkers
 ```r
 sumdata = sumdata_merge(sumbiomarkers, sumoutcome, 'A1', 'A2', paste0('A1.',outcome), paste0('A2.',outcome), paste0('beta.',outcome))
 
@@ -161,7 +163,7 @@ for (chr in 1:22){
 }
 ```
 
-Download [1000 Genomes genotype data](https://www.internationalgenome.org/data/) and save it in data/ folder. Construct plink format genotype data for 1000G individudals of European ancestry.
+#### Download [1000 Genomes genotype data](https://www.internationalgenome.org/data/) and save it in data/ folder. Construct plink format genotype data for 1000G individudals of European ancestry.
 ```r
 # mydir = 'data/LD-clumping/'
 # name<-"select_intersect"
@@ -175,7 +177,7 @@ Download [1000 Genomes genotype data](https://www.internationalgenome.org/data/)
 # }
 ```
 
-Generate the summary data files which will be used as the input for LD Clumping
+#### Generate the summary data files which will be used as the input for LD Clumping
 ```r
 second.min = function(x) sort(x,decreasing=F)[2]
 for (chr in 1:22){
@@ -193,7 +195,7 @@ for (chr in 1:22){
 }
 ```
 
-LD clumping
+#### LD clumping
 ```r
 # parameters for LD clumping
 r2=0.05; kb=1024
@@ -209,7 +211,7 @@ for (chr in c(1:22)){
 }
 ```
 
-Create clumped SNP list
+#### Create clumped SNP list
 ```r
 chr = 1
 sumclumped = NULL
@@ -248,7 +250,7 @@ tar -xvf eur_w_ld_chr.tar
 bunzip2 w_hm3.snplist.bz2
 ```
 
-The following R code can then be used to estimate the between-trait correlation matrix, which will be used later to estimate between-trait covariance matrices for the GWAS summary association statistics.
+#### The following R code can then be used to estimate the between-trait correlation matrix, which will be used later to estimate between-trait covariance matrices for the GWAS summary association statistics.
 
 ``` r
 ldsc.out.path="data/ldsc.out/"
@@ -273,7 +275,7 @@ save(cor.mat, file = 'cor.mat.RData')
 
 ### Step 5: test the causal effect of chronic inflammation on RA
 
-Read clumped snp information.
+#### Read clumped snp information.
 ``` r
 ############ read clumped snp info
 sumdata = sumdata[sumdata[['rsid']] %in% snp.clumped,]
@@ -303,7 +305,7 @@ for (trait in c(traitvec,outcome)){
 sumtable = sumtable[,c("Chr","Pos","rsid", "A1", "A2", trait.spec)]
 ```
 
-Estimate between-biomarker covariance matrices.
+#### Estimate between-biomarker covariance matrices.
 ```r
 ##### load between-biomarker genetic correlation matrix: cor.mat
 load(paste0('data/cor.mat.RData'))
@@ -319,7 +321,7 @@ for (ni in 1:nrow(sumtable)){
 beta.sd = diag(sapply(c(outcome,traitvec), function(x) median(sumtable[[paste0('se.',x)]])))
 ```
 
-Conduct hypothesis testing.
+#### Conduct hypothesis testing.
 ```r
 ### Data preparation for obtaining the IVW estimators.
 Bkind = list()
@@ -337,7 +339,7 @@ output = mrle(sumtable, thetak.sign, Cov.mat, alpha0, ivindk)
 ```
 
 
-####  Reference:
+###  References:
       1. Bulik-Sullivan, B., Finucane, H.K., Anttila, V., Gusev, A., Day, F.R., Loh, P.R., Duncan, L., Perry, J.R., Patterson, N., Robinson, E.B. and Daly, M.J., 2015. An atlas of genetic correlations across human diseases and traits. Nature genetics, 47(11), p.1236. [https://www.nature.com/articles/ng.3406.pdf?origin=ppub](https://www.nature.com/articles/ng.3406.pdf?origin=ppub)
       2. Bulik-Sullivan, B.K., Loh, P.R., Finucane, H.K., Ripke, S., Yang, J., Patterson, N., Daly, M.J., Price, A.L. and Neale, B.M., 2015. LD Score regression distinguishes confounding from polygenicity in genome-wide association studies. Nature genetics, 47(3), pp.291-295. [https://www.nature.com/articles/ng.3211](https://www.nature.com/articles/ng.3211)
       3. Jin, J., Qi, G., Yu, Z. and Chatterjee, N., 2021. Mendelian Randomization Analysis Using Multiple Biomarkers of an Underlying Common Exposure. bioRxiv.  [https://doi.org/10.1101/2021.02.05.429979](https://doi.org/10.1101/2021.02.05.429979)
