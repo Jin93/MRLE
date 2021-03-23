@@ -1,0 +1,100 @@
+mebayes = function(set, chain, n.burnin, niter, settings, r12.sign, M, M1t, M2t, indmat,
+                   tem1, tem2, beta_init, N1, N2, Bh1, Bh2, C1.sfbm, C2.sfbm,
+                   snp.index1, snp.index2, snp.index12, snp.index1pool, snp.index2pool,
+                   H21, H22, snpinfo_rsid){
+  p.causal1 = settings[set,'p.causal1']
+  p.causal2 = settings[set,'p.causal2']
+  p.causal.common = settings[set,'p.causal.common']
+  r12 = settings[set,'r12']
+  hsq1 = H21[settings[set,'h2par']]
+  hsq2 = H22[settings[set,'h2par']]
+  sparse = 0 + 1 * settings[set,'sparse']
+  r12s = r12 * r12.sign
+  
+  # initial values
+  hsqh1 = hsqh2 = hsqh1.ldpred = hsqh2.ldpred = p1.ldpred = p2.ldpred = numeric()
+  #rhoh = numeric()
+  #bjh1 = matrix(0,niter,M); bjh2 = matrix(0,niter,M)
+  #bjh1.ldpred = matrix(0,niter,M); bjh2.ldpred = matrix(0,niter,M)
+  #bjh1 = bjh2 = bjh1.ldpred = bjh2.ldpred = rep(0,M)
+  pm1 = pm2 = rep(0,M); pm1.ldpred = pm2.ldpred = rep(0,M)
+  
+  #set.seed(set+chain+2020)
+  hsqh1[1:niter] = hsq1/((M1t)*p.causal1); hsqh2[1:niter] = hsq2/((M2t)*p.causal2)
+  #rhoh[1] = r12
+  p1.ldpred[1]=p.causal1; p2.ldpred[1]=p.causal2
+  bjh1 = beta_init[,1]; bjh2 = beta_init[,2]
+  bjh1.ldpred = beta_init[,1]; bjh2.ldpred = beta_init[,2]
+  
+  sigmasq1 = sigmasq2 = rep(0,M)
+  sigmasq1[tem1] = 1/N1; sigmasq2[tem2] = 1/N2
+  p_11 = min(p.causal1, p.causal2)*p.causal.common;
+  p_10 = p.causal1-p_11
+  p_01 = p.causal2-p_11
+  # n_causal1 = (sum(bjh1.ldpred[1,]!=0)); n_causal2 = (sum(bjh2.ldpred[1,]!=0));
+  
+  snp.index1pool = snp.index1pool[order((bjh1[snp.index1pool])^2,decreasing = TRUE)]
+  snp.index2pool = snp.index2pool[order((bjh2[snp.index2pool])^2,decreasing = TRUE)]
+  # snp.index1 = snp.index1[order((bjh1[snp.index1])^2,decreasing = TRUE)]
+  # snp.index2 = snp.index2[order((bjh1[snp.index2])^2,decreasing = TRUE)]
+  # snp.index12 = snp.index12[order((bjh1[snp.index12])^2,decreasing = TRUE)]
+  i1 = sapply(1:M1t, function(x){which(snpinfo$ind1==x)})
+  i2 = sapply(1:M2t, function(x){which(snpinfo$ind2==x)})
+  
+  for (s in 2:niter){
+    # update p
+    if (s == 2) p1.ldpred[s] = p.causal1; p2.ldpred[s] = p.causal2
+    if (s > 2){
+      Mc1.ldpred = (sum(bjh1.ldpred!=0)); Mc2.ldpred = (sum(bjh2.ldpred!=0))
+      #p1.ldpred[s] = rbeta(1,1+Mc1.ldpred,1+M1t-Mc1.ldpred);
+      #p2.ldpred[s] = rbeta(1,1+Mc2.ldpred,1+M2t-Mc2.ldpred)
+      p1.ldpred[s] = p.causal1; p2.ldpred[s] = p.causal2
+    }
+    
+    if (s<=n.burnin){
+      hsqh1.ldpred[s] = hsq1/((M1t)*p1.ldpred[s])
+      hsqh2.ldpred[s] = hsq2/((M2t)*p2.ldpred[s])
+    }
+    if (s>n.burnin){
+      hsqh1.ldpred[s] = hsq1/((M1t)*p1.ldpred[s])
+      hsqh2.ldpred[s] = hsq2/((M2t)*p2.ldpred[s])
+    }
+    # bind1.res = update_ind_cpp(snp.index1, i1, indmat[,1], C1.sfbm, Bh1, bjh1, sigmasq1, hsqh1.ldpred[s], p1.ldpred[s], sparse, length(snp.index1))
+    # bind2.res = update_ind_cpp(snp.index2, i2, indmat[,2], C2.sfbm, Bh2, bjh2, sigmasq2, hsqh2.ldpred[s], p2.ldpred[s], sparse, length(snp.index2))
+    # rownames(bind1.res) = rownames(bind2.res) = c('bjnew','pm') # 'ptilde','postmean',
+    # bjh1[snp.index1] = bind1.res['bjnew',]; bjh2[snp.index2] = bind2.res['bjnew',]
+    # boverlap.res = update_overlap_cpp3(snp.index12, i1, i2, indmat, C1.sfbm, C2.sfbm, Bh1, Bh2, bjh1, bjh2,
+    #                                    sigmasq1, sigmasq2, hsqh1.ldpred[s],hsqh2.ldpred[s],p1.ldpred[s],p2.ldpred[s],
+    #                                    r12s, p_11, p_10, p_01, sparse)
+    # bjh1[snp.index12] = boverlap.res[[1]][1,]; bjh2[snp.index12] = boverlap.res[[1]][2,]
+    # if (s>n.burnin){
+    #   pm1[snp.index1] = pm1[snp.index1] + bind1.res['pm',];
+    #   pm2[snp.index2] = pm2[snp.index2] + bind2.res['pm',]
+    #   pm1[snp.index12] = pm1[snp.index12] + boverlap.res[[2]][1,];
+    #   pm2[snp.index12] = pm2[snp.index12] + boverlap.res[[2]][2,]
+    #  }
+
+    ### LDpred
+    bind1.ldpred.res = update_ind_cpp(snp.index1pool, i1, indmat[,1], C1.sfbm, Bh1, bjh1.ldpred, sigmasq1, hsqh1.ldpred[s], p1.ldpred[s], sparse, length(snp.index1pool))
+    bind2.ldpred.res = update_ind_cpp(snp.index2pool, i2, indmat[,2], C2.sfbm, Bh2, bjh2.ldpred, sigmasq2, hsqh2.ldpred[s], p2.ldpred[s], sparse, length(snp.index2pool))
+    rownames(bind1.ldpred.res) = rownames(bind2.ldpred.res) = c('bjnew','pm') # 'ptilde','postmean',
+    bjh1.ldpred[snp.index1pool] = bind1.ldpred.res['bjnew',]; bjh2.ldpred[snp.index2pool] = bind2.ldpred.res['bjnew',]
+    if (s>n.burnin){
+      pm1.ldpred[snp.index1pool] = pm1.ldpred[snp.index1pool] + bind1.ldpred.res['pm',];
+      pm2.ldpred[snp.index2pool] = pm2.ldpred[snp.index2pool] + bind2.ldpred.res['pm',]
+      # pm1.ldpred[s,snp.index1pool] = bind1.ldpred.res['pm',];
+      # pm2.ldpred[s,snp.index2pool] = bind2.ldpred.res['pm',]
+    }
+    if (s %% 1 == 0) print(s)
+  }
+  
+  pm1 = pm1/(niter-n.burnin); pm2 = pm2/(niter-n.burnin)
+  pm1.ldpred = pm1.ldpred/(niter-n.burnin); pm2.ldpred = pm2.ldpred/(niter-n.burnin)
+  names(pm1) = names(pm2) = snpinfo_rsid
+  names(pm1.ldpred) = names(pm2.ldpred) = snpinfo_rsid
+  
+  effectsizes = c(pm1.ldpred, pm1, pm2.ldpred, pm2)
+  print(paste0('Complete setting ', set))
+  return(effectsizes = effectsizes)
+}
+

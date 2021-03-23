@@ -1,0 +1,29 @@
+PLINK v1.90b6.15 64-bit (21 Jan 2020)
+Options in effect:
+  --bfile data/LD-clumping/1000G.inflammation.ra.9
+  --clump data/LD-clumping/snplist.inflammation.ra.9.rsid
+  --clump-kb 1024
+  --clump-p1 0.001
+  --clump-p2 0.001
+  --clump-r2 0.05
+  --out data/LD-clumping/inflammation.ra.9
+
+Hostname: compute-110.cm.cluster
+Working directory: /users/jjin/MRLE
+Start time: Mon Mar 22 01:42:04 2021
+
+Random number seed: 1616391724
+128507 MB RAM detected; reserving 64253 MB for main workspace.
+Allocated 36141 MB successfully, after larger attempt(s) failed.
+5 variants loaded from .bim file.
+498 people (0 males, 0 females, 498 ambiguous) loaded from .fam.
+Ambiguous sex IDs written to data/LD-clumping/inflammation.ra.9.nosex .
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 498 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+5 variants and 498 people pass filters and QC.
+Note: No phenotypes present.
+--clump: 3 clumps formed from 5 top variants.
+Results written to data/LD-clumping/inflammation.ra.9.clumped .
+
+End time: Mon Mar 22 01:42:04 2021

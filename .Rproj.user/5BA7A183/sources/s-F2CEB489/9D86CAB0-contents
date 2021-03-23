@@ -1,0 +1,217 @@
+library(stringr)
+library(readxl)
+library(dplyr)
+library(ggplot2)
+vaccine.effect.cal = function(rkt, pkt, p0t, thetak){
+  log( ((1-p0t)*rkt-(1-pkt)*exp(thetak))/(exp(thetak)*pkt - rkt*p0t) )
+}
+# population data
+deathdate = '0312'
+vaccinedate = '0217'
+day = 17; lag = 10-7
+
+
+#From the CDC data, for each state can you calculate the ratio of the prop of population 
+#who have been vaccinated in the age >75 vs the prop of population who has been vaccinated 
+#in the whole population for that state.
+
+#We can compare this number to the relative risk of mortality associated with age for US population. 
+#If the vaccination done by risk, the vaccination ratio will be same as relative risk. 
+#We can check how the actual vaccination rate by age for state differs from the ideal rate that 
+#should have been if prioritization by age worked.
+
+
+#vac = read.csv(paste0("~/Dropbox/CDC/Vaccination/State/covid19_vaccinations_in_the_united_states.csv"),
+#               header=T,skip=3)
+
+
+#thetaks = c(-3.035,-0.997,0,0.775,1.647,2.744)
+Data = read.csv(paste0("~/Dropbox/CDC/Death/Provisional_COVID-19_Death_Counts_by_Sex__Age__and_State_",deathdate,".csv"), header = T)
+population = read.csv("~/Dropbox/NHANES_risk_score/Nature Medicine Revision/Github_revision/COVID19Risk/data/CDC/population_category_wise.csv")
+#Check US population is ~ 308 million in 2010
+population = population %>% filter(ORIGIN != 0) %>% filter(SEX != 0) %>% filter(AGE >=15)
+population = population %>% mutate(agegroup = case_when(AGE >= 15  & AGE < 55 ~ '55-',
+                                                        AGE >= 55  & AGE < 65 ~ '55-64',
+                                                        AGE >= 65  & AGE < 75 ~ '65-74',
+                                                        AGE >= 70  & AGE < 100 ~ '75+')) %>%
+  mutate(Race = case_when(RACE == 1  & ORIGIN == 1 ~ 'Non-Hispanic White',
+                          RACE == 2  & ORIGIN == 1 ~ 'Non-Hispanic Black',
+                          RACE == 3  & ORIGIN == 1 ~ 'Non-Hispanic American Indian or Alaska Native',
+                          RACE == 4  & ORIGIN == 1 ~ 'Non-Hispanic Asian',
+                          RACE == 5  & ORIGIN == 1 ~ 'Non-Hispanic Native Hawaiian or Other Pacific Islander',
+                          RACE == 6  & ORIGIN == 1 ~ 'Non-Hispanic More than one race',
+                          ORIGIN == 2 ~ 'Hispanic or Latino'))
+population = population %>% dplyr::select(NAME, agegroup, Race, POPESTIMATE2019)
+colnames(population)[1] = "State"
+
+deathrate_age_cdc = data.frame(Age.Group=NULL,month = NULL,logRR=NULL)
+####-------- Unadjusted RR for age-groups
+deaths = Data %>% filter(State != "United States") %>% 
+  filter(Age.Group != "1-4 years") %>% 
+  filter(Age.Group != "0-17 years") %>% 
+  filter(Age.Group != "5-14 years") %>% 
+  filter(Age.Group != "Under 1 year") %>%
+  filter(Age.Group != "All Ages") %>%
+  filter(Group == "By Month") %>%
+  filter(Month %in% c(3:12))
+deaths$State[which(deaths$State == "New York City")] = "New York"
+deaths = deaths %>% mutate(agegroup = case_when(Age.Group == "15-24 years" | Age.Group == "25-34 years" | Age.Group == "35-44 years" |Age.Group == "45-54 years" ~ '55-',
+                                                Age.Group == "65-74 years" ~ '65-74',
+                                                Age.Group == "75-84 years" | Age.Group == "85 years and over" ~ '75+',
+                                                Age.Group == "55-64 years" ~ '55-64')) %>%
+  dplyr::select(State, COVID.19.Deaths, agegroup, Month)
+# ------------------------------ poisson model for age adjusted for state ------------------------------
+deaths = deaths[complete.cases(deaths),]; deaths = deaths[deaths$COVID.19.Deaths!='',]
+deaths$COVID.19.Deaths = as.numeric(gsub(",","",deaths$COVID.19.Deaths))
+deaths_age = deaths %>% group_by(State, agegroup) %>% 
+  summarise(covid_deaths = sum(COVID.19.Deaths, na.rm = T)) %>% ungroup()
+population_age = population %>% group_by(State, agegroup) %>% summarise(population = sum(POPESTIMATE2019)) %>% ungroup()
+data_age = merge(population_age, deaths_age, by = c("State", "agegroup"))
+data_age = data_age  %>% mutate(death.rate = covid_deaths/population)
+
+data_age$covid_deaths = as.numeric(data_age$covid_deaths)
+data_age$agegroup = as.factor(data_age$agegroup)
+data_age$agegroup = relevel(data_age$agegroup, ref = "55-64")
+data_age$State = as.factor(data_age$State)
+
+
+currentdate = paste0('2021-02-',day+lag)
+#pop = read.csv(paste0('https://www.census.gov/popclock/embed.php?component=pop_on_date&date=', 
+#                      format(as.Date(currentdate), "%Y%m%d") ), na.strings = c("NA"), header = T)[,1]
+#pop = pop[str_detect(pop, 'United States:')]
+#pop = strsplit(as.character(pop)[1], ':')[[1]][2]
+pop = read_excel('~/Dropbox/Vaccine Efficacy/data/population_by_age_2020.xlsx')[4:89,1:4]
+pop[pop[,1] == '85+',1] = '85'
+pop = pop[1:86,c(1,4)]
+pop = data.frame(age = as.numeric(pop[[1]]), pop = as.numeric(pop[[2]]))
+pop = pop[complete.cases(pop),] #(unit: thousand)
+popage = data.frame(agegroup = c('55-','55-64','65-74','75+'),
+                    population = c(sum(as.numeric(pop$pop)[(pop$age<55)]),
+                                   sum(as.numeric(pop$pop)[(pop$age>=55)&(pop$age<65)]),
+                                   sum(as.numeric(pop$pop)[(pop$age>=65)&(pop$age<74)]),
+                                   sum(as.numeric(pop$pop)[(pop$age>=75)]))*1000)
+# vaccine data
+vac = read.csv(paste0('~/Dropbox/CDC/Vaccination/Demographics/',vaccinedate,'/age_groups_of_people with_2_doses administered.csv'),header = F)
+vac = data.frame(age=c('55-','55-64','65-74','75+'), 
+                 pct = c(sum(as.numeric(as.character(vac[4:7,2])),na.rm=T),as.numeric(as.character(vac[8,2])),
+                         as.numeric(as.character(vac[9,2])),as.numeric(as.character(vac[10,2]))), 
+                 vaccine = c(sum(as.numeric(as.character(vac[4:7,3])),na.rm=T),as.numeric(as.character(vac[8,3])),
+                             as.numeric(as.character(vac[9,3])),as.numeric(as.character(vac[10,3]))))
+colnames(vac)[which(colnames(vac) == 'age')] = 'agegroup'
+vac$agegroup=as.character(vac$agegroup)
+# death data
+date.priors = c(format(as.Date('2021-01-23')+seq(0,42,by=7), "%m/%d/%Y"))
+dat = read.csv(paste0("~/Dropbox/CDC/Death/Provisional_COVID-19_Death_Counts_by_Sex__Age__and_Week_",deathdate,".csv"), header = T)
+deaths = dat %>% filter(End.Week %in% date.priors) %>% 
+  filter(Sex=='All Sex') %>% 
+  filter(Age.Group != "1-4 Years") %>% 
+  filter(Age.Group != "0-17 Years") %>% 
+  filter(Age.Group != "5-14 Years") %>% 
+  filter(Age.Group != "Under 1 year") %>%
+  filter(Age.Group != "All Ages") %>%
+  mutate(agegroup = case_when(Age.Group == "15-24 Years" | Age.Group == "25-34 Years" | Age.Group == "35-44 Years" | Age.Group == "45-54 Years" ~ '55-',
+                              Age.Group == "55-64 Years" | Age.Group == "55-64 Years" ~ '55-64',
+                              Age.Group == '65-74 Years' ~ '65-74',
+                              Age.Group == "75-84 Years" | Age.Group == "85 Years and Over" ~ '75+')) %>%
+  mutate(deaths = COVID.19.Deaths) %>%
+  dplyr::select(agegroup,Age.Group,deaths,End.Week)
+deaths$deaths = as.numeric(gsub(",","",deaths$deaths))
+deaths = deaths %>% group_by(agegroup) %>% summarise(deaths = sum(deaths)) %>% ungroup()
+deaths = as.data.frame(deaths)
+
+# combine
+dat = merge(vac, deaths, by='agegroup')
+dat = merge(dat, popage, by='agegroup')
+dat$dr = dat$deaths/dat$population
+
+agegroups = c('55-', '65-74', '75+')
+tab = data.frame(vaccine.rate = rep(0,length(agegroups)), rr = rep(0,length(agegroups)))
+rownames(tab) = agegroups
+for (agegroup in agegroups){
+  age.model <- glm(covid_deaths ~ agegroup + State,offset=log(population),family=poisson(link = "log"),data = data_age)
+  thetak = age.model$coefficients[paste0('agegroup',agegroup)]
+  # vaccination rate ratio; relative risk
+  #tab[agegroup,] = c((dat$vaccine/dat$population)[which(dat$agegroup == agegroup)]/(sum(dat$vaccine)/sum(dat$population)),
+  #                   thetak)
+  tab[agegroup,] = c((dat$vaccine/dat$population)[which(dat$agegroup == agegroup)]/(sum(dat$vaccine)/sum(dat$population)),
+                     (dat$deaths/dat$population)[which(dat$agegroup == agegroup)]/(sum(dat$deaths)/sum(dat$population)))
+}
+tab = signif(tab, 2)
+tab
+
+
+
+
+rkt = sum(dat$dr[dat$agegroup == agegroup])/dat$dr[dat$agegroup == '55-64']
+pkt = dat$vaccine[dat$age == agegroup]/dat$population[dat$age == agegroup] # 2020534 (1.14)
+p0t = dat$vaccine[dat$age == '55-64']/dat$population[dat$age == '55-64'] # 2233740 (1.14)
+delta = vaccine.effect.cal(rkt, pkt, p0t, thetak)
+delta
+# agegroup75+ 
+#   -1.265753
+# age 65-74
+#  NaN
+# agegroup55- 
+#   2.164412 
+
+
+
+
+#check:
+dat = read.csv(paste0("~/Dropbox/CDC/Death/Provisional_COVID-19_Death_Counts_by_Sex__Age__and_Week_",deathdate,".csv"), header = T)
+a = unique(dat$End.Week)
+d=data.frame(agegroup=NULL, deaths = NULL,date=NULL)
+l=1
+for (agegroup in c('55-','55-64','65-74','75+')){
+  for (i in 1:length(a)){
+    deaths = dat %>% filter(End.Week == a[i]) %>% 
+      filter(Sex=='All Sex') %>% 
+      filter(Age.Group != "1-4 Years") %>% 
+      filter(Age.Group != "0-17 Years") %>% 
+      filter(Age.Group != "5-14 Years") %>% 
+      filter(Age.Group != "Under 1 year") %>%
+      filter(Age.Group != "All Ages") %>%
+      mutate(agegroup = case_when(Age.Group == "15-24 Years" | Age.Group == "25-34 Years" | Age.Group == "35-44 Years" | Age.Group == "45-54 Years" ~ '55-',
+                                  Age.Group == "55-64 Years" | Age.Group == "55-64 Years" ~ '55-64',
+                                  Age.Group == '65-74 Years' ~ '65-74',
+                                  Age.Group == "75-84 Years" | Age.Group == "85 Years and Over" ~ '75+')) %>%
+      mutate(deaths = COVID.19.Deaths) %>%
+      dplyr::select(agegroup,Age.Group,deaths)
+    deaths$deaths = as.numeric(gsub(",","",deaths$deaths))
+    d[l,'deaths']=sum(deaths$deaths[deaths$agegroup == agegroup])
+    d[l,'agegroup']=agegroup
+    d[l,'date']= a[i]#format(as.Date(a[i]), "%m/%d/%y")
+    l = l + 1
+  }
+}
+d$date = factor(d$date,levels = a)
+png(paste0('~/Dropbox/Vaccine Efficacy/output/death_by_age_',deathdate,'.png'),width = 3600, height = 1000, res = 300)
+ggplot(d, aes(x=date, y=deaths, group=agegroup)) + theme_minimal() +
+  geom_line(aes(color=agegroup)) + geom_point(aes(color=agegroup)) + 
+  scale_color_brewer(palette="Paired") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+dev.off()
+d$dr = 0
+for (agegroup in c('55-','55-64','65-74','75+')){
+  d$dr[d$agegroup==agegroup] = d$deaths[d$agegroup==agegroup]/popage$population[popage$agegroup == agegroup]
+}
+d$rr = 0
+for (agegroup in c('55-','65-74','75+')){
+  for (i in 1:nrow(d)){
+    d$rr[i] = d$dr[i]/d$dr[(d$agegroup=='55-64')&(d$date == d$date[i])]
+  }
+}
+d = d[(d$rr!='NaN')&(d$rr != Inf),]
+png(paste0('~/Dropbox/Vaccine Efficacy/output/death_rate_by_age_',deathdate,'.png'),width = 3600, height = 1000, res = 300)
+ggplot(d, aes(x=date, y=dr, group=agegroup)) + theme_minimal() +
+  geom_line(aes(color=agegroup)) + geom_point(aes(color=agegroup)) + 
+  scale_color_brewer(palette="Paired") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+dev.off()
+png(paste0('~/Dropbox/Vaccine Efficacy/output/rr_by_age_',deathdate,'.png'),width = 3600, height = 1000, res = 300)
+ggplot(d, aes(x=date, y=rr, group=agegroup)) + theme_minimal() +
+  geom_line(aes(color=agegroup)) + geom_point(aes(color=agegroup)) + 
+  scale_color_brewer(palette="Paired") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+dev.off()
+

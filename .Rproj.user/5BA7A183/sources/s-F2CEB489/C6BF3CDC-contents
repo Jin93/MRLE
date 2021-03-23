@@ -1,0 +1,14 @@
+###### Documents - R package development
+install.packages("devtools",'usethis','roxygen2')
+install.packages("available")
+library("devtools")
+library('usethis')
+library('roxygen2')
+library('available')
+available::available("MRLE", browse = FALSE)
+
+
+
+#devtools::create("MRLE")
+devtools::load_all("MRLE")
+devtools::document("MRLE")

@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1616209134405.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "2EB31DFE",
+    "lastKnownWriteTime" : 1583993135,
+    "last_content_update" : 1583993135,
+    "path" : "~/Dropbox/JHU/MR/Code/covLD-inflammation-draft.R",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "83,0",
+        "scrollLine" : "76"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 10,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

@@ -1,0 +1,20 @@
+PLINK v1.90b6.15 64-bit (21 Jan 2020)
+Options in effect:
+  --bfile data/LD-clumping/1000G.inflammation.ra.5
+  --clump data/LD-clumping/snplist.inflammation.ra.5.rsid
+  --clump-kb 1024
+  --clump-p1 0.001
+  --clump-p2 0.001
+  --clump-r2 0.05
+  --out data/LD-clumping/inflammation.ra.5
+
+Hostname: compute-110.cm.cluster
+Working directory: /users/jjin/MRLE
+Start time: Mon Mar 22 01:42:04 2021
+
+Random number seed: 1616391724
+128507 MB RAM detected; reserving 64253 MB for main workspace.
+Allocated 36141 MB successfully, after larger attempt(s) failed.
+Error: Failed to open data/LD-clumping/1000G.inflammation.ra.5.bed.
+
+End time: Mon Mar 22 01:42:04 2021

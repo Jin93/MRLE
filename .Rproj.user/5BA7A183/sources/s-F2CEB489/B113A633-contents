@@ -1,0 +1,298 @@
+######### Data Preprocessing
+#### 
+BOOT = TRUE
+correlation = T
+adjust = F
+ivwpackage = T
+stage2.conduct = T
+GWAS = FALSE
+setwd("/users/jjin/mr/")
+library(mvtnorm)
+library(devtools)
+library(lavaan)
+library(gdata)
+library(xtable)
+library(MASS) # for the ginv
+library(data.table)
+library(corpcor) #for pseudoinverse
+library(parallel)
+library(MendelianRandomization) # for mr_ivw
+library(dplyr)
+library(readr)
+library(R.utils) # for gzip
+library(stringr) # for str_detect
+library(genio) # a package to facilitate reading and writing genetics data. The focus of this vignette is processing plink BED/BIM/FAM files.
+library(MRMix)
+library(dplyr)
+source("code/function_GMM_realdata.R")
+source("code/functions_inflammation.R")
+ldsc.out.path="/dcl01/chatterj/data/jin/ldsc.out/"
+ldsc.path = "/dcl01/chatterj/data/jin/ldsc/"
+python.path = "~/anaconda2/bin/python" #cannot be default! change to anaconda2
+ldscore.path = file.path(ldsc.path,"eur_w_ld_chr/") # default, does not need to be specified
+gwas.dir = '/dcl01/chatterj/data/jin/summary_data/'
+
+### for file transfer between local and cluster
+mydir = '/dcl01/chatterj/data/jin/ldclump/'
+refdir = '/dcl01/chatterj/data/diptavo/1KG/'
+
+n.boot = 1000
+iter.max = 5e2
+type = "union"
+alpha0 = 5e-2
+z0 = qnorm(p=alpha0/2,lower.tail=FALSE)
+
+K=6
+maf.thr = 0.01 #(default in function preprocess)
+traitvec = c('IL1','IL6','IL8','TNF','MCP1','CRP')
+exposure = 'inflammation'
+outcome = 'cad' #'ces'
+sd.outcome = (outcome == 'sbp') * 19.3 + (outcome == 'dbp') * 10.5 + (outcome == 'ces') * 1 + (outcome == 'las') * 1 + (outcome == 'cad') * 1
+### IL6, IL16, TNF
+N.biomarker = c(3309,8189,3526,3454,8293,134803)[1:K]
+names(N.biomarker) = traitvec
+sd.biomarkers = c(2.47,49.9,10.5,147,24.8,4.245)[1:K] 
+names(sd.biomarkers) = traitvec
+thetak.sign = c(1,1,1,1,1,1)[1:K]
+methods = c(paste0('IVW.',traitvec),'GMM')
+
+####################################################################################################
+##################################### Step 1: Data Preprocessing ###################################
+######## Merge: match SNPs between biomarkers using rsid; ##########################################
+######## Standardization of the biomarker data (/se(trait)) ########################################
+######## SNP filtering for biomarkers:
+############### 1. with MAF<0.01
+############### 2. with effective sample size < 0.67 * 0.9 percentile
+############### 3. within the major histocompatibility complex (MHC) region ( 26Mb \~ 34Mb on chromosome 6)
+############### 4. alleles do not match those in the 1000 Genomes Project.
+######## Select SNPs that reach GWAS significance
+######## Standardization of the outcome data
+######## SNP filtering for the outcome data
+############### 1. with MAF<0.01, no need
+############### 2. with effective sample size < 0.67 * 0.9 percentile
+############### 3. within the major histocompatibility complex (MHC) region ( 26Mb \~ 34Mb on chromosome 6), no need
+############### 4. alleles do not match those in the 1000 Genomes Project, no need
+######## Match SNPs between biomarkers and the outcome by chr:loc ##################################
+######## Calculate the correlation between summary statistics
+######## LD pruning/clumping
+####################################################################################################
+######## Merge files:
+setting1 = expand.grid(select.type = c('intersection'),alpha=c(5e-5,5e-4))
+for (set1 in 1:nrow(setting1))
+{
+  select.type = setting1[set1,'select.type']
+  p.clump = alpha = setting1[set1,'alpha']
+  z = qnorm(p=alpha/2,lower.tail=FALSE)
+  #p.crp = (p.clump == 5e-5) * 5e-8 + (p.clump == 5e-4) * 5e-8
+  p.crp = (p.clump == 5e-5) * 5e-8 + (p.clump %in% c(5e-4,1e-3)) * 5e-6
+  z.crp = qnorm(p=p.crp/2,lower.tail=FALSE)
+  
+  load(paste0('~/mr/code/sumall.inflammationcrp-cad-adj3-',select.type,'-',p.clump,'.RData'))
+  setting2 = expand.grid(r2=c(0.01,0.02,0.05,0.1),kb=c(256,512,1024,2048))
+  for (set2 in 1:nrow(setting2))
+  {
+    pc = p.clump
+    r2 = setting2[set2,'r2']
+    kb = setting2[set2,'kb']
+    ############ read clumped snp info
+    load(paste0('~/mr/code/sumall.inflammationcrp-cad-adj3-',select.type,'-',p.clump,'.RData'))
+    confounders = c('bmi','sbp','diabetes')
+    conf.rsid = readRDS(paste0('~/mr/code/conf.rsid-',paste0(confounders,collapse='-'),'.rds'))
+    ### do not remove SNPs associated with the confounders: o.w. there is no significant SNP left for CRP
+    sumall = sumall[!(sumall[['rsid']] %in% conf.rsid),] # 0
+    
+    chr = 1
+    sumclumped = NULL
+    temfile = paste0(mydir,'data/1000G_',exposure,'.',K,'.', outcome,'.',select.type,'.',p.clump,'.', r2, '.', kb, '.',chr,'.clumped')
+    if(file.exists(temfile))
+    {
+      snp.clumped = read_delim(temfile,delim=' ',progress=F) # data.frame
+      colnames(snp.clumped) = trimws(colnames(snp.clumped))
+      snp.clumped = trimws(snp.clumped$SNP)
+      sumclumped = sumall[((sumall$Chr == chr)&(sumall$rsid %in% snp.clumped)),]
+    }
+    for (chr in 2:22)
+    {
+      temfile = paste0(mydir,'data/1000G_',exposure,'.',K,'.', outcome,'.',select.type,'.',p.clump,'.', r2, '.', kb, '.',chr,'.clumped')
+      if(file.exists(temfile))
+      {
+        temp = read_delim(temfile,delim=' ',progress=F) # data.frame
+        colnames(temp) = trimws(colnames(temp))
+        temp = trimws(temp$SNP)
+        sumclumpedtemp = sumall[((sumall$Chr == chr)&(sumall$rsid %in% temp)),]
+        sumclumped = rbind(sumclumped,sumclumpedtemp)
+        print(paste0('Complete Chr ',chr))
+      }
+    }
+    snp.clumped = sumclumped[['rsid']]
+    save(snp.clumped,file=paste0(mydir,'data/snp.clumped.',exposure, K, '_', outcome,'.',select.type,'.',p.clump,'.', r2, '.', kb, '.RData'))
+    
+    
+    load(paste0(mydir,'data/snp.clumped.',exposure, K, '_', outcome,'.',select.type,'.',p.clump,'.', r2, '.', kb, '.RData'))
+    ############### data analysis
+    K=6
+    multiplebiom = T
+    if (multiplebiom == T) {methods = c(paste0('IVW.',traitvec),paste0('MRMix.',traitvec),'GMM')}
+    if (multiplebiom == F) {methods = c('IVW','MRMix','GMM')}
+    maf.thr = 0.01 #(default in function preprocess)
+    traitvec = c('IL1','IL6','IL8','TNF','MCP1','CRP')
+    exposure = 'inflammation'
+    outcome = 'cad' #'ces'
+    sd.outcome = (outcome == 'sbp') * 19.3 + (outcome == 'dbp') * 10.5 + (outcome == 'ces') * 1 + (outcome == 'las') * 1 + (outcome == 'cad') * 1
+    ### IL6, IL16, TNF
+    N.biomarker = c(3309,8189,3526,3454,8293,134803)[1:K]
+    names(N.biomarker) = traitvec
+    sd.biomarkers = c(2.47,49.9,10.5,147,24.8,4.245)[1:K] 
+    names(sd.biomarkers) = traitvec
+    thetak.sign = c(1,1,1,1,1,1)[1:K]
+    
+    load(paste0(mydir,'data/snp.clumped.',exposure, K, '_', outcome,'.',select.type,'.',p.clump,'.', r2, '.', kb, '.RData'))
+    load(paste0('~/mr/code/sumall.inflammationcrp-cad-adj3-',select.type,'-',p.clump,'.RData'))
+    sumall0=sumall
+    sumall = sumall[sumall[['rsid']] %in% snp.clumped,]
+    sumall = sumall[!(sumall[['rsid']] %in% conf.rsid),]
+    
+    second.min = function(x)
+    {
+      sort(x,decreasing=F)[2]
+    }
+    if (select.type == 'intersection')
+    {
+      p.exposure = apply(sumall[,paste0('P.',traitvec)], 1, second.min)
+    }
+    if (select.type == 'union')
+    {
+      p.exposure = apply(sumall[,paste0('P.',traitvec)], 1, min)
+    }
+    p.outcome = sumall[[paste0('P.',outcome)]]
+    # ------- remove the SNPs that have larger effect size for the outcome than for the exposure:
+    sumall = sumall[p.exposure<p.outcome,]    #132 -> 131
+    
+    
+    ##################
+    ##################
+    which.biomarkers = c(1,3,4,5,6)#c(3,4,5,6)
+    traitvec0 = traitvec
+    traitvec = traitvec0[which.biomarkers]
+    K0=K
+    K=length(traitvec)
+    thetak.sign = thetak.sign[which.biomarkers]
+    multiplebiom = T
+    if (multiplebiom == T) {methods = c(paste0('IVW.',traitvec),paste0('MRMix.',traitvec),'GMM')}
+    if (multiplebiom == F) {methods = c('IVW','MRMix','GMM')}
+    ######### Filtering: select the SNPs that reach genome-wide significance for Bks: 
+    Bkind = list()
+    sign.level = ifelse(traitvec == 'CRP', p.crp, alpha)
+    for (i in 1:K)
+    {
+      Bkind[[i]] = ifelse(sumall[[paste0('P.',traitvec[i])]]<= sign.level[i],1,0)
+    }
+    Bkinds = colSums(matrix(unlist(Bkind),K,nrow(sumall),byrow=T))
+    ivind = which(Bkinds > ifelse(select.type == 'union',0,1)) # index of the SNPs that are associated with at least one of the Bks
+    ivindk = lapply(1:K,FUN=function(x){which(Bkind[[x]]>0)}) # index of the SNPs that are associated with each Bk
+    sumtable = sumall[ivind,]
+    
+    which.significant = which(sapply(1:K,function(x){length(ivindk[[x]])})>0)
+    traitvec = traitvec[which.significant]
+    K=length(traitvec)
+    thetak.sign = thetak.sign[which.significant]
+    multiplebiom = T
+    if (multiplebiom == T) {methods = c(paste0('IVW.',traitvec),paste0('MRMix.',traitvec),'GMM')}
+    if (multiplebiom == F) {methods = c('IVW','MRMix','GMM')}
+    
+    ##### may exclude some biomarkers:
+    trait.spec = NULL
+    for (trait in c(traitvec,outcome)){
+      trait.spec = c(trait.spec, paste0(c("beta.", "se.", "P."), trait))
+    }
+    sumtable = sumtable[,c("Chr","Pos","rsid", "A1", "A2", trait.spec)]
+    ##### load between-biomarker correlation: cor.mat
+    if (exposure == 'inflammation')
+    {
+      load(paste0('code/cor.mat.inflammation6.RData'))
+    }
+    if (exposure == 'kf')
+    {
+      load(paste0('code/cor.mat.',exposure,'.RData'))
+    }
+    #colnames(cor.mat) = rownames(cor.mat) = traitvec0
+    cov.mat = matrix(0,K+1,K+1)
+    cov.mat[2:(K+1),2:(K+1)] = cor.mat[traitvec,traitvec]
+    diag(cov.mat) = 1
+    cor.mat = cov.mat # redefine cor.mat by adding the correlation between biomarkers and the outcome
+    Cov.mat = list()
+    for (ni in 1:nrow(sumtable))
+    {
+      beta.sd = diag(sapply(c(outcome,traitvec), function(x) {(sumtable[[paste0('se.',x)]][ni])}))
+      Cov.mat[[ni]] = beta.sd %*% cor.mat %*% beta.sd
+    }
+    beta.sd = diag(sapply(c(outcome,traitvec), function(x) median(sumtable[[paste0('se.',x)]])))
+    c.mat = beta.sd %*% cor.mat %*% beta.sd
+    ########## Data Analysis
+    ### data for ivw analysis
+    Bkind = list()
+    ivw.ind = list()
+    sign.level = ifelse(traitvec == 'CRP', p.crp, alpha)
+    for (i in 1:K)
+    {
+      Bkind[[i]] = ifelse(sumtable[[paste0('P.',traitvec[i])]]<= sign.level[i],1,0)
+    }
+    Bkinds = colSums(matrix(unlist(Bkind),K,nrow(sumtable),byrow=T))
+    ivind = which(Bkinds > ifelse(select.type == 'union',0,1)) # index of the SNPs that are associated with at least one of the Bks
+    ivindk = lapply(1:K,FUN=function(x){which(Bkind[[x]]>0)}) # index of the SNPs that are associated with each Bk
+    names(ivindk) = traitvec
+    sumtable0=sumtable
+    
+    ###### change to the original estimates
+    if (T==F)
+    {
+    crpdata = read_tsv('/dcl01/chatterj/data/jin/summary_data/gwas-crp.tsv',col_names = TRUE)
+    crpdata = crpdata[,c('CHR_POS','INITIAL SAMPLE SIZE','CHR_ID','SNPS','P-VALUE','OR or BETA','95% CI (TEXT)','P-VALUE (TEXT)')]
+    crpdata$sd = abs(crpdata[,'OR or BETA'] - as.numeric(substr(sapply(1:nrow(crpdata),function(x){strsplit(crpdata[x,'95% CI (TEXT)'][[1]],'-')[[1]][1]}),2,10)))/z0
+    crpdata$beta = crpdata[,'OR or BETA'] * ifelse(sapply(1:nrow(crpdata),function(x){strsplit(crpdata[x,'95% CI (TEXT)'][[1]],' ')[[1]][3]}) == 'increase', 1, -1)
+    crpdata[['P-VALUE (TEXT)']] = substr(crpdata[['P-VALUE (TEXT)']],1,14) == '(BMI-adjusted)'
+    crpdata = crpdata[complete.cases(crpdata[['P-VALUE (TEXT)']]),]
+    crpdata = crpdata[crpdata[['P-VALUE (TEXT)']],]   # now it has unique rsids
+    crpdata=as.data.frame(crpdata)
+    rownames(crpdata) = crpdata$SNPS
+    rsids = intersect(crpdata$SNPS,sumtable$rsid)
+    sumtable[crpdata$SNPS,c('beta.CRP','se.CRP','P.CRP')] = crpdata[,c('beta','sd','P-VALUE')]
+    sumtable$beta.CRP = sumtable$beta.CRP/sd.biomarkers['CRP']
+    sumtable$se.CRP = sumtable$se.CRP/sd.biomarkers['CRP']
+    #sumtable[sumtable$rsid %in% rsids,c('beta.CRP','P.CRP')]
+    #1  -0.0302 2.37e-14
+    #2   0.0402 7.82e-25
+    #3   0.0243 4.41e-10
+    #crpdata[crpdata$SNPS %in% rsids,c('beta,'P-VALUE')]
+    #rs12239046     -0.041   6e-25
+    #rs1260326       0.077   9e-86
+    #rs6734238      -0.050   6e-38
+    }
+    
+    set.seed(2020)
+    
+    output = GMManalysis(sumtable)
+    print(paste0(select.type,' ',p.clump,' r2=',r2,' kb=',kb))
+    output
+    snp.rsid = sumtable$rsid
+    M=matrix(c(sapply(1:K,function(x){length(ivindk[[x]])}),length(ivind)),ncol=1)
+    colnames(M) = 'M'
+    #names(M) = c(traitvec,'union')
+    output[['outcome']] = cbind(c(rep(M[1:K],2),M[K+1]),output[['outcome']])
+    #output[['outcome']]
+    #save(output,snp.rsid, ivindk, file=paste0('~/mr/data_anaysis/output.qc-',exposure,K,'-',outcome,'-',select.type,'-',p.clump,'-',r2,'-',kb,'.RData'))
+    save(output,snp.rsid, ivindk, file=paste0('~/mr/data_anaysis/output.qc-adj13-',paste0(traitvec,collapse = '-'),'-',outcome,'-',select.type,'-',p.clump,'-',r2,'-',kb,'.RData'))
+  }
+}
+
+
+
+
+
+
+save(ivw.results,file=paste0('~/mr/data_anaysis/ivwselect-',paste0(traitvec,collapse = '-'),'-',outcome,'-',select.type,'-',p.clump,'-',r2,'-',kb,'.RData'))
+
+
+
+
+

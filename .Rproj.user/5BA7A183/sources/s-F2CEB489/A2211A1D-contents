@@ -1,0 +1,61 @@
+####################################################################################################
+##################################### Step 1: Data Preprocessing ###################################
+################## Merge: match GWAS summary statistics of the biomarkers ##########################
+######## SNP filtering - remove SNPs that have one or more of the following conditions
+############### 1. MAF < 0.01
+############### 2. effective sample size < 0.67 * 0.9 percentile
+############### 3. within the major histocompatibility complex (MHC) region ( 26Mb \~ 34Mb on chromosome 6)
+############### 4. alleles do not match those in the 1000 Genomes Project.
+######## match A1 and A2 across biomarkers and save them in columns A1, A2
+sumdata = read_delim('data/sumdata.txt', delim='\t')
+sumdata = as.data.frame(sumdata)
+
+#### match A1 and A2 of the outcome (columns A1.outcome, A2.outcome) to A1 and A2 of the biomarkers (columns A1, A2)
+#### re
+## scenario 1: A1 A2 flipped between the biomarker and the outcome
+inds.flipped = ((sumdata[["A1"]] == sumdata[[paste0('A2.',outcome)]])&(sumdata[["A2"]] == sumdata[[paste0('A1.',outcome)]]))
+## match to biomarkers A1 A2
+if (sum(inds.flipped) > 0){
+  sumdata[[paste0("beta.",outcome)]][inds.flipped] = -sumdata[[paste0("beta.",outcome)]][inds.flipped]
+  sumdata[[paste0("A1.",outcome)]][inds.flipped] = sumdata[['A1']][inds.flipped]
+  sumdata[[paste0("A2.",outcome)]][inds.flipped] = sumdata[['A2']][inds.flipped]
+}
+## scenario 2: A1 A2 flipped between the biomarker and the outcome; modifiable strand-ambiguous:
+combine.alleles = function(x) paste(x,collapse='')
+alleles = cbind(sumdata[["A1"]], sumdata[["A2"]], sumdata[[paste0('A1.',outcome)]], sumdata[[paste0('A2.',outcome)]])
+alleles = apply(alleles,1,combine.alleles)
+inds.ambiguous= which(alleles %in% c('ACGT','AGCT','TCGA','TGCA','CATG','CTAG','GATC','GTAC'))
+if (length(inds.ambiguous) > 0){
+  sumdata[[paste0("beta.",outcome)]][inds.ambiguous] = -sumdata[[paste0("beta.",outcome)]][inds.ambiguous]
+  sumdata[[paste0("A1.",outcome)]][inds.ambiguous] = sumdata[['A1']][inds.ambiguous]
+  sumdata[[paste0("A2.",outcome)]][inds.ambiguous] = sumdata[['A2']][inds.ambiguous]
+}
+###### now decide which ones to keep
+inds.ambiguous.keep = alleles %in% c('ACTG','AGTC','TCAG','TGAC','CAGT','CTGA','GACT','GTCA')
+if (sum(inds.ambiguous.keep) > 0){
+  sumdata[[paste0("A1.",outcome)]][inds.ambiguous.keep] = sumdata[['A1']][inds.ambiguous.keep]
+  sumdata[[paste0("A2.",outcome)]][inds.ambiguous.keep] = sumdata[['A2']][inds.ambiguous.keep]
+}
+inds.match.keep = ((sumdata[["A1"]] == sumdata[[paste0('A1.',outcome)]])&(sumdata[["A2"]] == sumdata[[paste0('A2.',outcome)]]))
+if (sum(inds.ambiguous.keep)>0){
+  inds.keep = c(which(inds.ambiguous.keep),which(inds.match.keep))
+}
+if (sum(inds.ambiguous.keep)==0){
+  inds.keep = which(inds.match.keep)
+}
+sumdata = sumdata[inds.keep,]
+
+# Extract trait-specific column names
+trait.spec = NULL
+for (trait in c(traitvec,outcome)){
+  trait.spec = c(trait.spec, paste0(c("beta.", "se.", "P."), trait))
+}
+sumdata = sumdata[,c("loc","rsid", "A1", "A2", trait.spec)]
+sumdata <- sumdata %>%
+  mutate(position = strsplit(loc, split = ':')) %>%
+  mutate(Chr = as.integer(sapply(position, function(x) x[1])), Pos = as.integer(sapply(position, function(x) x[2])))
+sumdata = sumdata[,c("loc","Chr","Pos","rsid", "A1", "A2", trait.spec)] # Jin: no need to include "Chr" and "Pos"
+save(sumdata, file='/dcl01/chatterj/data/jin/summary_data/sumdata.infl.rhema.RData')
+
+
+

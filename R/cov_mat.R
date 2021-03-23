@@ -1,0 +1,297 @@
+preprocess_inflammation = function(sumstats,maf.thr,K,screening){
+  # If sumstats is not named, name it.
+  if (is.null(names(sumstats))){
+    names(sumstats) = traitvec
+  }
+  ###### For the estimation of between-trait correlation:
+  # construct sumstats[[1:K]] as the data matrices for biomarkers
+  trait = names(sumstats)[1]
+  sumstats[[trait]] = sumstats[[trait]] %>%
+    mutate(z = beta/se, A1 = toupper(A1), A2 = toupper(A2)) %>%
+    select(Chr, Pos, rsid, A1, A2, N, z, P)
+  ### delete duplicated rows (with the same rsid and beta, sd, A1, A2 etc)
+  for (trait in names(sumstats)[1:K]){
+    duplicated.rsid = duplicated(sumstats[[trait]][,'rsid'])
+    sumstats[[trait]] = sumstats[[trait]][-which(duplicated.rsid),]
+  }
+  for (trait in names(sumstats)[2:K]){
+    sumstats[[trait]] = sumstats[[trait]] %>%
+      mutate(z = beta/se, A1 = toupper(A1), A2 = toupper(A2)) %>%
+      select(rsid, A1, A2, N, z, P)
+  }
+
+  # NA: Remove SNPs with sample size < 0.67 * (90 percentile)
+  # Remove SNPs within the major histocompatibility complex (MHC) region (26Mb~34Mb on chromosome 6)
+  # Remove SNPs with MAF (or 1-MAF) < maf.thr
+  for (trait in names(sumstats)){
+    if ('N' %in% names(sumstats[[trait]])){
+      sumstats[[trait]] = sumstats[[trait]] %>% filter(N>0.67*quantile(N,0.9))
+    }
+    if (("Chr"%in%colnames(sumstats[[trait]]) & ("Pos"%in%colnames(sumstats[[trait]])))){
+      sumstats[[trait]] = sumstats[[trait]] %>% filter(!(Chr==6 & Pos>26e6 & Pos<34e6))
+    }
+    if ("Freq1"%in%colnames(sumstats[[trait]])){
+      sumstats[[trait]] = sumstats[[trait]] %>% filter((Freq1>maf.thr) & (Freq1<1-maf.thr))
+    }
+  }
+  ### Trait-specific names
+  trait = names(sumstats)[1]
+  names(sumstats[[trait]])[4:ncol(sumstats[[trait]])] = paste0(names(sumstats[[trait]])[4:ncol(sumstats[[trait]])],'.',trait)
+  for (trait in names(sumstats)[2:K]){
+    names(sumstats[[trait]])[2:ncol(sumstats[[trait]])] = paste0(names(sumstats[[trait]])[2:ncol(sumstats[[trait]])],'.',trait)
+  }
+  # Remove missing data, make A1 represent minor allele, remove rare variants
+  # Merge data set: only keep SNPs that are available for all traits.
+  sumstats.all = sumstats[[1]]
+  for (i in 2:length(sumstats)){
+    sumstats.all = sumstats.all %>% inner_join(sumstats[[i]], by = 'rsid')
+  }
+
+  # Remove missing data
+  sumstats.all = sumstats.all[complete.cases(sumstats.all),]
+
+  # If Freq1 is provided, align the alleles of the first trait such that A1 is the minor allele
+  trait = names(sumstats)[1]
+  if (paste0("Freq1.",trait) %in% colnames(sumstats.all)){
+    tempA1 = sumstats.all[[paste0('A1.',trait)]]
+    tempA2 = sumstats.all[[paste0('A2.',trait)]]
+    tempz = sumstats.all[[paste0("z.",trait)]]
+    # Retrieve indices that needs to be changed
+    inds = sumstats.all[[paste0("Freq1.",trait)]] > 0.5
+    tempA1[inds] = sumstats.all[[paste0('A2.',trait)]][inds]
+    tempA2[inds] = sumstats.all[[paste0('A1.',trait)]][inds]
+    tempz[inds] = -tempz[inds]
+    sumstats.all = sumstats.all %>% mutate(A1 = tempA1, A2 = tempA2)
+    sumstats.all[[paste0("z.",trait)]] = tempz
+  } else{
+    sumstats.all = sumstats.all %>% rename(A1 = paste0('A1.',trait), A2 = paste0('A2.',trait))
+  }
+
+  ###### Newly added: remove strand-ambiguous SNPs + Align all alleles to the first trait (A1 is minor allele)
+  for (i in 2:length(sumstats)){
+    trait = names(sumstats)[i]
+    if ('Freq1' %in% names(sumstats[[trait]])){
+      inds.keep = (((sumstats.all[['A1']] == sumstats.all[[paste0('A1.',trait)]])&(sumstats.all[['A2']] == sumstats.all[[paste0('A2.',trait)]])&(sumstats.all[[paste0('Freq1.',trait)]] < 0.5)) | ((sumstats.all[['A1']] == sumstats.all[[paste0('A2.',trait)]])&(sumstats.all[['A2']] == sumstats.all[[paste0('A1.',trait)]])&(sumstats.all[[paste0('Freq1.',trait)]]>0.5)))
+    }
+    if (!'Freq1' %in% names(sumstats[[trait]])){
+      inds.keep = (((sumstats.all[['A1']] == sumstats.all[[paste0('A1.',trait)]])&(sumstats.all[['A2']] == sumstats.all[[paste0('A2.',trait)]])) | ((sumstats.all[['A1']] == sumstats.all[[paste0('A2.',trait)]])&(sumstats.all[['A2']] == sumstats.all[[paste0('A1.',trait)]])))
+    }
+    sumstats.all = sumstats.all[inds.keep,]
+    inds = (sumstats.all[[paste0("A1.",trait)]] != sumstats.all[["A1"]])
+    sumstats.all[[paste0("z.",trait)]][inds] = -sumstats.all[[paste0("z.",trait)]][inds]
+  }
+  trait.spec = NULL
+  for (trait in names(sumstats)){
+    trait.spec = c(trait.spec, paste0(c("N.", "z.", "P."), trait))
+  }
+  sumstats.all = sumstats.all[,c("rsid", "A1", "A2", trait.spec)]
+  return(list(sumstats.all = sumstats.all, traitvec = names(sumstats)))
+}
+
+
+covmat_inflammation = function(sumstats.all, traitvec, out.path, ldsc.path, python.path = NULL,
+                               ldscore.path = file.path(ldsc.path,"eur_w_ld_chr/"), mergeallele = TRUE){
+  # Add anaconda python to path: for ldsc (no need to do this if the path is already set by the system).
+  if (!is.null(python.path)){
+    Sys.setenv(PATH = paste(python.path, Sys.getenv('PATH'), sep = ':'))
+  }
+  # Check if out.path exists
+  if (!dir.exists(out.path)){
+    dir.create(out.path)
+  }
+
+  # Further preprocess the data: randomly simulate signs for z.trait1 (LDSC requires median(z) is small).
+  inds = sample(nrow(sumstats.all), round(nrow(sumstats.all))/2)
+  tempA1 = sumstats.all$A1
+  sumstats.all$A1[inds] = sumstats.all$A2[inds]
+  sumstats.all$A2[inds] = tempA1[inds]
+  for (trait in traitvec){
+    sumstats.all[[paste0("z.",trait)]][inds] = -sumstats.all[[paste0("z.",trait)]][inds]
+  }
+
+  # Write files for LDSC
+  for (trait in traitvec){
+    sumstats.all %>%
+      rename(N = paste0("N.",trait), z = paste0("z.",trait), P = paste0("P.",trait)) %>%
+      select(rsid, A1, A2, N, z, P) %>%
+      write_delim(file.path(out.path, paste0(trait,'_for_ldsc.txt')), delim = '\t')
+  }
+
+  # Call ldsc to estimate heritability, coheritability
+  # Change summary level data to .sumstats format
+  for (trait in traitvec){
+    munge.sumstats.code = paste(python.path,file.path(ldsc.path,"munge_sumstats.py"),
+                                "--sumstats",
+                                file.path(out.path, paste0(trait,'_for_ldsc.txt')),
+                                "--out", file.path(out.path, paste0(trait,"_ldsc_format")))
+    if (mergeallele==TRUE){
+      munge.sumstats.code = paste(munge.sumstats.code, "--merge-alleles", file.path(ldsc.path,"w_hm3.snplist"))
+    }
+    system(munge.sumstats.code)
+    print(paste("ldsc_sumstasts", trait))
+  }
+
+  # Fit LD score regression
+  for (i in 1:(length(traitvec)-1)){
+    traits = traitvec[i:(length(traitvec))]
+    sumstats.files = paste(file.path(out.path, paste0(traits,"_ldsc_format.sumstats.gz")), collapse = ",")
+    ldsc.code = paste(python.path, file.path(ldsc.path,"ldsc.py"),
+                      "--rg", sumstats.files,
+                      "--ref-ld-chr", ldscore.path,
+                      "--w-ld-chr", ldscore.path,
+                      "--out", file.path(out.path, paste0(paste(traits, collapse = "_"),"_ldsc_results")))
+    system(ldsc.code)
+    print(paste("ldsc", traits[1]))
+  }
+
+  # Retrieve heritability-coheritability matrix from the log files
+  coherit.mat = matrix(NA, nrow = length(traitvec), ncol = length(traitvec))
+  ldscint.mat = matrix(NA, nrow = length(traitvec), ncol = length(traitvec)) # Stores LDSC intercepts
+
+  for (i in 1:(length(traitvec)-1)){
+    traits = traitvec[i:length(traitvec)]
+    logfile = readLines(file.path(out.path, paste0(paste(traits, collapse = "_"),"_ldsc_results.log")))
+    # Get heritability information
+    if (i==1){
+      for (j in 1:length(traitvec)){
+        if (j == 1){  # When j==1 the format is slightly different
+          ind = which(logfile == "Heritability of phenotype 1") # Two lines below the title is the heritability
+        } else{
+          ind = which(logfile == paste0("Heritability of phenotype ", j, "/", length(traitvec)))
+        }
+        coherit.mat[j,j] = as.numeric(strsplit(logfile[ind+2], split = " ")[[1]][5])
+        ldscint.mat[j,j] = as.numeric(strsplit(logfile[ind+5], split = " ")[[1]][2])
+      }
+    }
+
+    # Get coheritability information
+    gencov.inds = which(logfile == "Genetic Covariance")
+    gencovs = sapply(strsplit(logfile[gencov.inds+2], split = " "), function(x) x[5])
+    coherit.mat[i,(i+1):length(traitvec)] = as.numeric(gencovs)
+    coherit.mat[(i+1):length(traitvec),i] = as.numeric(gencovs)
+
+    ldscints = sapply(strsplit(logfile[gencov.inds+4], split = " "), function(x) x[2])
+    ldscint.mat[i,(i+1):length(traitvec)] = as.numeric(ldscints)
+    ldscint.mat[(i+1):length(traitvec),i] = as.numeric(ldscints)
+  }
+
+  return(list(coherit.mat = coherit.mat, ldscint.mat = ldscint.mat))
+}
+
+
+
+covinfo_inflammation = function(sumstats, out.path, ldsc.path, python.path = python.path, ldscore.path = file.path(ldsc.path,"eur_w_ld_chr/"), maf.thr, mergeallele = TRUE, K,screening){
+  temp = preprocess_inflammation(sumstats, maf.thr, K = K, screening)
+  sumstats.all = temp[[1]]
+  traitvec = temp[[2]]
+  rm(temp)
+
+  temp = covmat_inflammation(sumstats.all, traitvec, out.path, ldsc.path = ldsc.path, python.path = python.path, ldscore.path = ldscore.path, mergeallele = mergeallele)
+  coherit.mat = temp[[1]]
+  ldscint.mat = temp[[2]]
+
+  return(list(coherit.mat = coherit.mat, ldscint.mat = ldscint.mat))
+}
+################################################################################
+#' second derivatives
+covmat = function(sumstats.all, traitvec, out.path, ldsc.path, python.path = NULL, ldscore.path = file.path(ldsc.path,"eur_w_ld_chr/"), mergeallele = TRUE){
+  # Add anaconda python to path: for ldsc (no need to do this if the path is already set by the system).
+  if (!is.null(python.path)){
+    Sys.setenv(PATH = paste(python.path, Sys.getenv('PATH'), sep = ':'))
+  }
+  # Check if out.path exists
+  if (!dir.exists(out.path)){
+    dir.create(out.path)
+  }
+
+  # Further preprocess the data: randomly simulate signs for z.trait1 (LDSC requires median(z) is small).
+  inds = sample(nrow(sumstats.all), round(nrow(sumstats.all))/2)
+  tempA1 = sumstats.all$A1
+  sumstats.all$A1[inds] = sumstats.all$A2[inds]
+  sumstats.all$A2[inds] = tempA1[inds]
+  for (trait in traitvec){
+    sumstats.all[[paste0("z.",trait)]][inds] = -sumstats.all[[paste0("z.",trait)]][inds]
+  }
+
+  # Write files for LDSC
+  for (trait in traitvec){
+    sumstats.all %>%
+      rename(N = paste0("N.",trait), z = paste0("z.",trait), P = paste0("P.",trait)) %>%
+      select(rsid, A1, A2, N, z, P) %>%
+      write_delim(file.path(out.path, paste0(trait,'_for_ldsc.txt')), delim = '\t')
+  }
+
+  # Call ldsc to estimate heritability, coheritability
+  # Change summary level data to .sumstats format
+  for (trait in traitvec){
+    munge.sumstats.code = paste(python.path,file.path(ldsc.path,"munge_sumstats.py"),
+                                "--sumstats",
+                                file.path(out.path, paste0(trait,'_for_ldsc.txt')),
+                                "--out", file.path(out.path, paste0(trait,"_ldsc_format")))
+    if (mergeallele==TRUE){
+      munge.sumstats.code = paste(munge.sumstats.code, "--merge-alleles", file.path(ldsc.path,"w_hm3.snplist"))
+    }
+    system(munge.sumstats.code)
+    print(paste("ldsc_sumstasts", trait))
+  }
+
+  # Fit LD score regression
+  for (i in 1:(length(traitvec)-1)){
+    traits = traitvec[i:(length(traitvec))]
+    sumstats.files = paste(file.path(out.path, paste0(traits,"_ldsc_format.sumstats.gz")), collapse = ",")
+    ldsc.code = paste(python.path, file.path(ldsc.path,"ldsc.py"),
+                      "--rg", sumstats.files,
+                      "--ref-ld-chr", ldscore.path,
+                      "--w-ld-chr", ldscore.path,
+                      "--out", file.path(out.path, paste0(paste(traits, collapse = "_"),"_ldsc_results")))
+    system(ldsc.code)
+    print(paste("ldsc", traits[1]))
+  }
+
+  # Retrieve heritability-coheritability matrix from the log files
+  coherit.mat = matrix(NA, nrow = length(traitvec), ncol = length(traitvec))
+  ldscint.mat = matrix(NA, nrow = length(traitvec), ncol = length(traitvec)) # Stores LDSC intercepts
+
+  for (i in 1:(length(traitvec)-1)){
+    traits = traitvec[i:length(traitvec)]
+    logfile = readLines(file.path(out.path, paste0(paste(traits, collapse = "_"),"_ldsc_results.log")))
+    # Get heritability information
+    if (i==1){
+      for (j in 1:length(traitvec)){
+        if (j == 1){  # When j==1 the format is slightly different
+          ind = which(logfile == "Heritability of phenotype 1") # Two lines below the title is the heritability
+        } else{
+          ind = which(logfile == paste0("Heritability of phenotype ", j, "/", length(traitvec)))
+        }
+        coherit.mat[j,j] = as.numeric(strsplit(logfile[ind+2], split = " ")[[1]][5])
+        ldscint.mat[j,j] = as.numeric(strsplit(logfile[ind+5], split = " ")[[1]][2])
+      }
+    }
+
+    # Get coheritability information
+    gencov.inds = which(logfile == "Genetic Covariance")
+    gencovs = sapply(strsplit(logfile[gencov.inds+2], split = " "), function(x) x[5])
+    coherit.mat[i,(i+1):length(traitvec)] = as.numeric(gencovs)
+    coherit.mat[(i+1):length(traitvec),i] = as.numeric(gencovs)
+
+    ldscints = sapply(strsplit(logfile[gencov.inds+4], split = " "), function(x) x[2])
+    ldscint.mat[i,(i+1):length(traitvec)] = as.numeric(ldscints)
+    ldscint.mat[(i+1):length(traitvec),i] = as.numeric(ldscints)
+  }
+
+  return(list(coherit.mat = coherit.mat, ldscint.mat = ldscint.mat))
+}
+
+covinfo = function(sumstats, out.path, ldsc.path, python.path = python.path, ldscore.path = file.path(ldsc.path,"eur_w_ld_chr/"), maf.thr, mergeallele = TRUE, K,screening){
+  temp = preprocess(sumstats, maf.thr, K = K, screening)
+  sumstats.all = temp[[1]]
+  traitvec = temp[[2]]
+  rm(temp)
+
+  temp = covmat(sumstats.all, traitvec, out.path, ldsc.path = ldsc.path, python.path = python.path, ldscore.path = ldscore.path, mergeallele = mergeallele)
+  coherit.mat = temp[[1]]
+  ldscint.mat = temp[[2]]
+
+  return(list(coherit.mat = coherit.mat, ldscint.mat = ldscint.mat))
+}
+

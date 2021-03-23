@@ -1,0 +1,34 @@
+Package: MRLE
+Title: Mendelian Randomization Analysis Using Multiple Biomarkers of an Underlying Common Exposure
+Version: 0.0.0.9000
+Authors@R: 
+    person(given = "Jin",
+           family = "Jin",
+           role = c("aut", "cre"),
+           email = "jjin31@jhu.edu")
+Description: Provides R functions for conducting MR analysis for Latent Exposure (MRLE).
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+URL: https://github.com/Jin93/MRLE
+BugReports: https://github.com/Jin93/MRLE/issues
+Imports: 
+    mvtnorm,
+    devtools,
+    lavaan,
+    gdata,
+    MASS,
+    data.table,
+    corpcor,
+    parallel,
+    dplyr,
+    readr,
+    R.utils,
+    stringr,
+    genio,
+    bigsnpr,
+    bigreadr
+Language: en-US
+ByteCompile: TRUE
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.1.1

@@ -1,0 +1,856 @@
+sim_data<- function(n0, p, n.extra, R, Q, pop, cor.c2, v.confounder){
+  #### n0: the number of observations in each group
+  #pop='X': Y=0
+  #n.non0.p = floor(0.1 * p)
+  if (n.extra == 0)
+  {
+    epsilon <- mvrnorm(n0, rep(0, p), R)
+    X = solve(diag(rep(1,p)) - Q)%*%t(epsilon)
+    return(X=t(X)) # n x p
+  }
+  if (n.extra > 0)
+  {
+    epsilon <- mvrnorm(n0, rep(0, p+n.extra), R)
+    epsilon[,p+1] = 0
+    M1.p = (1-sqrt(1-4*diag(R)[p+1]))/2
+    epsilon[,p+1] = rbinom(n0, 1, M1.p)
+    epsilon[,p+1] = scale(epsilon[,p+1], center = T, scale = F) #equivalent  epsilon[,p+1] - mean(epsilon[,p+1])
+    #### assume M1 and M2 are independent from epsilon but NOT independent from each other
+    M1 = matrix(epsilon[,p+1],ncol=1) # rbinom(n, 1, M1.p) ### need to minus mean(M1)? not an issue anymore if generating as follows:
+    if (n.extra >= 3){
+      R.M2 = diag(R[((p+2):(p+n.extra)),((p+2):(p+n.extra))])/(max(Q[1:p,((p+1):(p+n.extra))]))
+      R.M2 = diag(sqrt(R.M2)) %*% cor.c2 %*% diag(sqrt(R.M2)) * v.confounder
+    }
+    if (n.extra == 2){
+      R.M2 = R[((p+2):(p+n.extra)),((p+2):(p+n.extra))]/(max(Q[1:p,((p+1):(p+n.extra))]))
+      R.M2 = R.M2 * cor.c2 * v.confounder
+    }
+
+    M2 = mvrnorm(n0, rep(0, n.extra-1), R.M2) # simulate based on M1
+    M2 = scale(M2, center = T, scale = F)
+    ## can also assume there is correlation between Ms
+    if (T == F){
+      M2 =  solve(diag(rep(1,n.extra-1)) - Q[(p+2):(p+n.extra),(p+2):(p+n.extra)]) %*% t(M1 %*% t(Q[(p+2):(p+n.extra),p+1]) + epsilon[,(p+2):(p+n.extra)]) # simulate based on M1
+      M = cbind(M1,t(M2))
+    }
+    M = cbind(M1,M2)
+    X = solve(diag(rep(1,p)) - Q[1:p,1:p])%*%t(M %*% t(Q[1:p,((p+1):(p+n.extra))]) + epsilon[,1:p])
+    ###### no: conditional on M1, generate X
+    return(list(X=t(X), M=M)) # n x p
+  }
+}
+DAG.random0 <- function(v, v0, d) {
+  #edges.max <- v*(v-1)/2
+  # Assert length(v)==1 && 1 <= v
+  # Assert 0 <= nedges <= edges.max
+  #index.edges <- lapply(list((d):(v0-2+d)), function(k) rep(k*(k+1)/2, v-k))
+  graph.adjacency <- matrix(0, ncol=v, nrow=v)
+  # v0 rows total
+  if (d > 1)
+  {
+    if (v0<v)
+    {
+      for(k in (d+1):(v0+d))
+      {
+        graph.adjacency[k,sample(1:(k-1), d)] <- 1
+      }
+    }
+    if (v0 == v)
+    {
+      for(k in (d+1):(v0-d*2))
+      {
+        graph.adjacency[k,sample(1:(k-1), d)] <- 1
+      }
+      for(k in (v0-d*2+1):(v0)) # d+1 rows has (d+1) nonzero elements per row
+      {
+        graph.adjacency[k,sample(1:(k-1), d+1)] <- 1
+      }
+    }
+  }
+  if (d == 1)
+  {
+    for(k in (d+1):(v0+d-2))
+    {
+      graph.adjacency[k,sample(1:(k-1), d)] <- 1
+    }
+    k = v0+d-1
+    graph.adjacency[k,sample(1:(k-1), d+1)] <- 1
+  }
+  graph.adjacency
+  # check d
+  # apply(graph.adjacency,1,sum)
+}
+
+
+DAG.random <- function(v, v0, d) {
+  #edges.max <- v*(v-1)/2
+  # Assert length(v)==1 && 1 <= v
+  # Assert 0 <= nedges <= edges.max
+  #index.edges <- lapply(list((d):(v0-2+d)), function(k) rep(k*(k+1)/2, v-k))
+  graph.adjacency <- matrix(0, ncol=v, nrow=v)
+  # v0 rows total
+  for (k in (v-v0+1):v)
+  {
+    graph.adjacency[k,sample(1:(k-1), d[k-(v-v0)])] = 1
+  }
+  graph.adjacency
+  # check d
+  # apply(graph.adjacency,1,sum)
+}
+
+
+
+##### the code is based on the model X=QX+epsilon
+create.graph = function(graph.type,A.type,Q.type,d,p,p0,error,err.percentage)
+{
+  #graph.type: DAG or undirected
+  #A.type: Sparse or HubNode
+  #Q.type: equal (i.e. Q_{ij}=1) or unequal (i.e. Q_{ij} ~ N(0,1))
+  if (graph.type == "DAG")
+  {
+    set.seed(2019)
+    ## 1. Generate A (adjacency matrix)
+    if (A.type == "Sparse")
+    {
+      A = DAG.random(p,p0,d)
+    }
+    if ('Missing' %in% error)
+    {
+      nonzeroA.ind = which(A==1)
+      miss.ind = sample(1:length(nonzeroA.ind),ceiling(err.percentage*length(nonzeroA.ind)), replace = F)
+      AMissing = A
+      AMissing[nonzeroA.ind[miss.ind]] = 0
+    }
+    if ('Redundant' %in% error)
+    {
+      zeroA.ind = which(A==0)
+      valid.ind = unlist(lapply(1:(p-1),function(x){(x+1):p+(x-1)*p}))
+      zeroA.ind = zeroA.ind[(zeroA.ind %in% valid.ind)]
+      finclude.ind = sample(1:length(zeroA.ind),ceiling(err.percentage*length(nonzeroA.ind)), replace = F)
+      ARedundant = A
+      ARedundant[zeroA.ind[finclude.ind]] = 1
+    }
+    if ('Both' %in% error)
+    {
+      nonzeroA.ind = which(A==1)
+      miss.ind = sample(1:length(nonzeroA.ind),ceiling((err.percentage/2)*length(nonzeroA.ind)), replace = F)
+      zeroA.ind = which(A==0)
+      valid.ind = unlist(lapply(1:(p-1),function(x){(x+1):p+(x-1)*p}))
+      zeroA.ind = zeroA.ind[(zeroA.ind %in% valid.ind)]
+      finclude.ind = sample(1:length(zeroA.ind),floor((err.percentage/2)*length(nonzeroA.ind)), replace = F)
+      ABoth = A
+      ABoth[nonzeroA.ind[miss.ind]] = 0
+      ABoth[zeroA.ind[finclude.ind]] = 1
+    }
+    #if (A.type == "HubNode"){}
+    if (!exists("n.confounder")) {n.confounder = 0}
+
+    n.extra = n.confounder
+
+    if (n.extra == 0)
+    {
+      ################ Data generation based on the true graph information
+      if (Q.type == "equal")
+      {
+        Qx = Qy = A * matrix(sample(c(1,-1),p^2,replace=T),p,p)
+      }
+      if (Q.type == "unequal")
+      {
+        Qx = Qy = A * matrix(rnorm(p^2,0,1),p,p)
+      }
+      # Standardization:
+      Qx.eigen = eigen(t(Qx)%*%(Qx))
+      Qx = Qy = Qx/(Qs*norm(Qx, '2')) #Qx/sqrt(Qx.eigen$values[1]*Qs)
+
+      #### True R:
+      Rxinv = Ryinv = diag(1/Ris) #assume Rinv is diagonal
+      Rx = Ry = diag(Ris)
+      #### True covariance matrices:
+      Sxinv = Syinv = t(diag(1,p)-Qx)%*%Rxinv%*%(diag(1,p)-Qx)
+      Sx = Sy = solve(Sxinv,toler = 1e-30)
+    }
+    if (n.extra > 0)
+    {
+      ##### define the adjacency matrix after taking into account the extras in the graph
+      A0 = matrix(0,p+n.extra,p+n.extra)
+      A0[1:p,1:p] = A
+      ####### the density of the relationship between the first extra and Z:
+      A0[1:p,(p+1):(p+n.extra)] = conf1.causal
+      if (T == T){
+        A0[1:p,p+1] = conf1.causal
+        if (n.extra > 1)
+        {
+          A0[1:p,(p+2):(p+n.extra)] = 1
+          for (l.A0 in (p+2):(p+n.extra)) # skip line p+1
+          {
+            A0[l.A0,(p+1):(l.A0-1)] = 1 ### don't need assume all causal,
+            ##### have to assume that all are 1 when fitting regressions cause we won't know the DAG for this part!
+          }
+        }
+      }
+
+      if (Q.type == "equal")
+      {
+        Qx = Qy = A0 * matrix(sample(c(1,-1),(p+n.extra)^2,replace=T),p+n.extra,p+n.extra)
+        #Qx[which(conf1.causal == 1),p+1] = c(rep(label.strength,floor(sum(conf1.causal)/2)),rep(-1*label.strength,sum(conf1.causal)-floor(sum(conf1.causal)/2)))
+      }
+      if (Q.type == "unequal")
+      {
+        Qx = Qy = A0 * matrix(rnorm((p+n.extra)^2,0,1),p+n.extra,p+n.extra)
+      }
+      # Standardization:
+      Qx.eigen = eigen(t(Qx)%*%(Qx))
+      Qx = Qy = Qx/(Qs*norm(Qx, '2')) #Qx/sqrt(Qx.eigen$values[1]*Qs)
+      # modification for the binary confounder
+      #Qx[1:p,p+1] = Qy[1:p,p+1] = sign(Qx[1:p,p+1])
+      Qx[1:p,(p+1):(p+n.extra)] = Qy[1:p,(p+1):(p+n.extra)] = matrix(rnorm(p*n.extra,0,1),p,n.extra)
+      Qx[1:p,(p+1):(p+n.extra)] = Qy[1:p,(p+1):(p+n.extra)] = Qx[1:p,(p+1):(p+n.extra)] * non0.C
+      #### True R:
+      Rxinv = Ryinv = diag(1/Ris) #assume Rinv is diagonal
+      Rx = Ry = diag(Ris)
+      #### True covariance matrices:
+      ### assume X1 is a binary extra (e.g. sex)
+      Sxinv = Syinv = t(diag(1,p+n.extra)-Qx)%*%Rxinv%*%(diag(1,p+n.extra)-Qx)
+      Sx = Sy = solve(Sxinv,toler = 1e-30)
+      A=A0
+    }
+  }
+
+  if (graph.type == "undirected2")
+  {
+    set.seed(2019)
+    ## 1. Generate A (adjacency matrix)
+    A = matrix(0,p,p)
+    if (A.type == "Sparse")
+    {
+      for (i in (p-p0+1):p)
+      {
+        nonzero.ind = sample(1:(i-1),d[i-(p-p0)],replace=F)
+        A[i,nonzero.ind] = A[nonzero.ind,i] = 1
+      }
+    }
+    diag(A) = 0 # remove self loops
+    #if (A.type == "HubNode"){}
+    ## 2. Generate Q
+    if (Q.type == "equal")
+    {
+      Qx = Qy = A * matrix(sample(c(1,-1),p^2,replace=T),p,p)
+    }
+    if (Q.type == "unequal")
+    {
+      Qx = Qy = A * matrix(rnorm(p^2,0,1),p,p)
+    }
+    # Standardization:
+    Qx.eigen = eigen(t(Qx)%*%(Qx))
+    Qx = Qy = Qx/(Qs*norm(Qx, '2')) #sqrt(Qx.eigen$values[1]*Qs)
+
+    #### True R:
+    Rxinv = Ryinv = diag(1/Ris,p) #assume Rinv is diagonal
+    Rx = Ry = diag(Ris,p)
+    #### True covariance matrices:
+    Sxinv = Syinv = t(diag(1,p)-Qx)%*%Rxinv%*%(diag(1,p)-Qx)
+    Sx = Sy = solve(Sxinv,toler = 1e-30)
+  }
+  if (graph.type == "undirected") # here we assume Q = precision matrix
+  {
+    set.seed(2019)
+    TA = A = Qx = Qy = matrix(0,p,p)
+    ## Generate a lower triangular matrix TA that is more sparse than A = TA %*% t(TA):
+    nonzero.ind = sample(c(1:(p^2)),d*p,replace=F)
+    if (Q.type == "equal")
+    {
+      TA[nonzero.ind] = sample(c(-1,1),d*p,replace=T)
+    }
+    if (Q.type == "unequal")
+    {
+      TA[nonzero.ind] = rnorm(d*p,0,1)
+    }
+    for (i in 1:(p-1))
+    {
+      TA[i,(i+1):p] = 0
+    }
+    diag(TA) = 1 # if we assume that the graph corresponds to the precision matrix
+    ### Generate A (adjacency matrix):
+    ### Every positive-definite matrix has a Cholesky decomposition
+    ### that takes the form LL' where L is lower triangular
+    A = TA %*% t(TA)
+    # Create precision matrix: has to ensure that they are positive definite
+    Qx = Qy = A
+    ##### Redefine A to be the skeleton (adjacency matrix):
+    A = ifelse(A>0,1,0)
+    ##### Standardization:
+    Qx.eigen = eigen(t(Qx)%*%(Qx))
+    Qx = Qy = Qx/sqrt(Qx.eigen$values[1]*Qs)
+    #### True covariance matrices:
+    Sxinv = Syinv = Qx
+    Sx = Sy = solve(Syinv)
+  }
+  Asign = sign(Qx)
+  if (F %in% error)
+  {
+    return(list(A=A,Qx=Qx,Qy=Qy,Sx=Sx,Sy=Sy,Sxinv=Sxinv,Syinv=Syinv,Asign=Asign))
+  }
+  if (('Missing' %in% error) & (length(error) == 1))
+  {
+    return(list(A=A,Qx=Qx,Qy=Qy,Sx=Sx,Sy=Sy,Sxinv=Sxinv,Syinv=Syinv,AMissing = AMissing,Asign=Asign))
+  }
+  if (('Redundant' %in% error) & (length(error) == 1))
+  {
+    return(list(A=A,Qx=Qx,Qy=Qy,Sx=Sx,Sy=Sy,Sxinv=Sxinv,Syinv=Syinv,ARedundant = Areduntant,Asign=Asign))
+  }
+  if  (('Both' %in% error) & (length(error) == 1))
+  {
+    return(list(A=A,Qx=Qx,Qy=Qy,Sx=Sx,Sy=Sy,Sxinv=Sxinv,Syinv=Syinv,ABoth = ABoth,Asign=Asign))
+  }
+  if (('Missing' %in% error) & ('Redundant' %in% error) & (length(error) == 1))
+  {
+    return(list(A=A,Qx=Qx,Qy=Qy,Sx=Sx,Sy=Sy, Sxinv=Sxinv, Syinv=Syinv, AMissing = AMissing, ARedundant = ARedundant,Asign=Asign))
+  }
+  if (('Missing' %in% error) & ('Redundant' %in% error) & ('Both' %in% error))
+  {
+    return(list(A=A,Qx=Qx,Qy=Qy,Sx=Sx,Sy=Sy, Sxinv=Sxinv, Syinv=Syinv, AMissing = AMissing, ARedundant = ARedundant,ABoth = ABoth,Asign=Asign))
+  }
+}
+
+create.signal = function(signal.type,p,q,Diff)
+{
+  set.seed(2019)
+  if (variable == "q")
+  {
+    if (signal.type == "equal")
+    {
+      mux = muy = rep(0,p)
+      if (q>0)
+      {
+        diffindx = sample(1:p,q) # the index of the components that have signals
+        muy[diffindx] = muy[diffindx] + Diff * c(rep(1,floor(q/2)),rep(-1,q-floor(q/2)))
+      }
+    }
+    if (signal.type == "unequal")
+    {
+      mux = muy = rep(0,p)
+      if (q>0)
+      {
+        diffindx = sample(1:p,q)
+        muy[diffindx] = muy[diffindx] + rnorm(q,0,sd.Diff)
+      }
+    }
+  }
+  if (variable == "signal")
+  {
+    if (signal.type == "equal")
+    {
+      mux = muy = rep(0,p)
+      if (q>0)
+      {
+        diffindx = 1:q # the index of the components that have signals: the first q elements
+        muy[diffindx] = muy[diffindx] + Diff * c(rep(1,floor(q/2)),rep(-1,q-floor(q/2)))
+      }
+    }
+    if (signal.type == "unequal")
+    {
+      mux = muy = rep(0,p)
+      if (q>0)
+      {
+        diffindx = 1:q # the index of the components that have signals: the first q elements
+        muy[diffindx] = muy[diffindx] + rnorm(q,0,sd.Diff)
+      }
+    }
+  }
+  return(list(mux=mux,muy=muy))
+}
+
+SEM.fit = function(p,ntotal,Data,pop,A)
+{
+  if (p == ncol(A))
+  {
+    p.model = p
+    # p: the # of regression! not the number of nodes in the gene expression data
+    Qest = pmatrix = matrix(0,p.model,p.model) # estimated Q's
+    Epsi = matrix(0,ntotal,p.model) # estimated Epsilon matrices
+    Rdiag = numeric()
+    for (i in 1:p.model)
+    {
+      non0i = which(A[i,]!=0) # index for the xi's that are included in the i-th regression:
+      if (length(non0i)>0) # if there exist directed edges from xj's to this xi
+      {
+        formulai=formula(paste0(paste(paste0(pop,i), paste(paste0(pop,non0i),collapse="+"), sep="~"), " -1"))
+        fiti = lm(formulai,data = Data)
+        Qest[i,non0i] = fiti$coefficients
+        pmatrix[i,non0i] = summary(fiti)$coef[,'Pr(>|t|)']
+        Epsi[,i] = Data[,i] - as.matrix(Data[,non0i])%*%t(t(fiti$coefficients))
+        #### assume diagonal:
+      }
+      if (length(non0i)==0) # if there is no directed edge from any xj to this xi
+      {
+        Epsi[,i] = Data[,i]
+      }
+      Rdiag[i] = var(Epsi[,i]) # estimated R's
+    }
+    #Rinvest = diag(1/Rdiag) # estimated Rinverse's
+    return(list(Qest=Qest,Rdiag=Rdiag))
+  }
+  if (p < ncol(A))
+  {
+    p.model = p
+    # p: the # of regression! not the number of nodes in the gene expression data
+    # A: p x p+n.confounder
+    Qest = pmatrix = matrix(0,ncol(A),ncol(A)) # estimated Q's
+    Epsi = matrix(0,ntotal,ncol(A)) # estimated Epsilon matrices
+    Rdiag = numeric()
+    for (i in 1:p.model)
+    {
+      non0i = which(A[i,]!=0) # index for the xi's that are included in the i-th regression:
+      #non0i = union(which(A[i,]>0),(p+1):ncol(A)) # index for the xi's that are included in the i-th regression:
+      if (length(non0i)>0) # if there exist directed edges from xj's to this xi
+      {
+        formulai=formula(paste0(paste(paste0(pop,i), paste(paste0(pop,non0i),collapse="+"), sep="~"), " -1"))
+        fiti = lm(formulai,data = Data)
+        Qest[i,non0i] = fiti$coefficients
+        pmatrix[i,non0i] = summary(fiti)$coef[,'Pr(>|t|)']
+        Epsi[,i] = Data[,i] - as.matrix(Data[,non0i])%*%t(t(fiti$coefficients))
+        #### assume diagonal:
+      }
+      if (length(non0i)==0) # if there is no directed edge from any xj to this xi
+      {
+        Epsi[,i] = Data[,i]
+      }
+      Rdiag[i] = var(Epsi[,i]) # estimated R's
+    }
+    #Rinvest = diag(1/Rdiag) # estimated Rinverse's
+    return(list(Qest=Qest,Rdiag=Rdiag,pmatrix=pmatrix))
+  }
+}
+
+
+
+simulation_graph = function(sim,graph.type,error)
+{
+  pval=rep(NA,length(methods)) # calculated p values
+  rej=rep(NA,length(methods)) # 1: H0 rejected, 0: H0 not rejected
+  names(pval) = names(rej) = methods
+
+  ################################ Data Generation: ################################
+  set.seed(99*sim)
+  ####### Generate X and Y:
+  #### for both SEM.type == 'standard' and 'covariate
+  Xdata = sim_data(n0=n[["X"]], p, n.confounder, diag(Ris), Qx, 'X', cor.c2, v.confounder) # 'X' or 'Y' does not matter for the standard method
+  Ydata = sim_data(n0=n[["Y"]], p, n.confounder, diag(Ris), Qy, 'Y', cor.c2, v.confounder)
+  if (n.confounder > 0)
+  {
+    X = Xdata$X + sapply(1:p,function(x){rep(mux[x],n[['X']])})
+    Y = Ydata$X + sapply(1:p,function(x){rep(muy[x],n[['Y']])})
+    Mx = Xdata$M
+    My = Ydata$M
+
+    Z = rbind(cbind(scale(X, center = T, scale = F),Mx),
+              cbind(scale(Y, center = T, scale = F),My))
+    Z0 = Z
+    Z = as.data.frame(Z)
+    colnames(Z) = c(paste0("Z", 1:(p+n.confounder)))#,paste0('M',1:n.confounder))
+    meandiff = colMeans(X)-colMeans(Y)
+  }
+
+  if (n.confounder == 0)
+  {
+    X = Xdata + sapply(1:p,function(x){rep(mux[x],n[['X']])})
+    Y = Ydata + sapply(1:p,function(x){rep(muy[x],n[['Y']])})
+
+    Z = rbind(scale(X, center = T, scale = F),
+              scale(Y, center = T, scale = F))
+    Z0 = Z
+    Z = as.data.frame(Z)
+    colnames(Z) = c(paste0("Z", 1:(p+n.confounder)))#,paste0('M',1:n.confounder))
+    meandiff = colMeans(X)-colMeans(Y)
+  }
+
+  ###################### The Proposed Graph-based Method: ######################
+  if ((graph.type == "DAG")|(graph.type == "undirected2"))
+  {
+    if (n.confounder == 0)
+    {
+      ####### Results using the correct modeling:
+      SEM.results = SEM.fit(p,N,Z,'Z', A[1:(p+n.confounder),1:(p+n.confounder)])
+      Qest = SEM.results$Qest
+      Rdiag = SEM.results$Rdiag
+      #### test statistic: T= n1*n2/(n1+n2) (Xbar-Ybar)^T (I-Qhat) R^(_1)hat (I-Qhat) (Xbar-Ybar)
+      Sigma.hat = solve(diag(1,p+n.confounder)-Qest)%*%diag(Rdiag)%*%solve(t(diag(1,p+n.confounder)-Qest))
+      Omega.hat = t(diag(1,p+n.confounder)-Qest) %*% diag(1/Rdiag) %*% (diag(1,p+n.confounder)-Qest)
+      #Omega.hat = sqrtm(Omega.hat)
+      Omega.meandiff = Omega.hat %*% meandiff
+      T.graph = (n[["X"]]*n[["Y"]])/(N)*(t(colMeans(X)-colMeans(Y))%*% solve(Sigma.hat[1:p,1:p]) %*%t(t(colMeans(X)-colMeans(Y))))
+      if (F %in% error)
+      {
+        methodname = 'GraphSEM.chisq'
+        pval[methodname] =  pchisq(q=T.graph,df=p,lower.tail=FALSE) #pf(q=(N-p-1)/((N-2)*p)*T.graph,df1=p,df2=(N-1-p),lower.tail=FALSE)
+        rej[methodname] = ifelse(pval[methodname]<alpha,1,0) # decision: 1 if reject, 0 o.w.
+
+        T.graph2 = (T.graph - p)/sqrt(2*p)
+        methodname = 'GraphSEM.z'
+        pval[methodname] =  2*pnorm(q=abs(T.graph2),mean=0,sd=1,lower.tail=F) #pf(q=(N-p-1)/((N-2)*p)*T.graph,df1=p,df2=(N-1-p),lower.tail=FALSE)
+        rej[methodname] = ifelse(pval[methodname]<alpha,1,0) # decision: 1 if reject, 0 o.w.
+      }
+      if (!(F %in% error))
+      {
+        methodname = 'GraphSEM Correct'
+        #### GraphSEM.clx:
+        xbar.omega = Omega.hat %*% colMeans(X); ybar.omega = Omega.hat %*% colMeans(Y)
+        w1 = (Omega.hat %*% X[1,] - xbar.omega)%*%t(Omega.hat %*% X[1,] - xbar.omega)
+        w2 = (Omega.hat %*% Y[1,] - ybar.omega)%*%t(Omega.hat %*% Y[1,] - ybar.omega)
+        for (k.x in 2:n[[1]]){
+          w1 = w1 + (Omega.hat %*% X[k.x,] - xbar.omega)%*%t(Omega.hat %*% X[k.x,] - xbar.omega)
+        }
+        for (k.y in 2:n[[2]]){
+          w2 = w2 + (Omega.hat %*% Y[k.y,] - ybar.omega)%*%t(Omega.hat %*% Y[k.y,] - ybar.omega)
+        }
+        w1 = w1/n[[1]]; w2 = w2/n[[2]]
+        w1 = diag(w1); w2 = diag(w2) # w_i,i
+        w0 = (n[[1]]/(n[[1]]+n[[2]])) * w1 + (n[[2]]/(n[[1]]+n[[2]])) * w2
+        const = ((n[[1]]*n[[2]])/(n[[1]]+n[[2]]))
+        M.omega = const * max(Omega.meandiff^2/w0)
+        q.alpha = -log(pi) - 2*log(log((1-alpha)^(-1)))
+
+        pval[methodname] = 1 - exp((-1/sqrt(pi)) * exp(-(M.omega - 2*log(p) + log(log(p)))/2))
+        rej[methodname] = ifelse(M.omega >= 2*log(p) - log(log(p)) + q.alpha,1,0)
+      }
+    }
+    if (n.confounder > 0)
+    {
+      ####### Results after adjustment:
+      SEM.results = SEM.fit(p,N,Z,'Z', A[1:(p+n.confounder),1:(p+n.confounder)])
+      Qest = SEM.results$Qest
+      Rdiag = SEM.results$Rdiag
+      ##### construct the new R:
+      Q = Qest[1:p,1:p]
+      W = Qest[1:p,(p+1):(p+n.confounder)]
+      Sigma.confounder = var(Z[,(p+1):(p+n.confounder)])
+      R = W %*% Sigma.confounder %*% t(W) + diag(Rdiag)
+      #### test statistic: T= n1*n2/(n1+n2) (Xbar-Ybar)^T (I-Qhat) R^(_1)hat (I-Qhat) (Xbar-Ybar)
+      Sigma.hat = solve(diag(1,p)-Q) %*% R %*% solve(t(diag(1,p)-Q))
+      T.graph = (n[["X"]]*n[["Y"]])/(N)*(t(colMeans(X)-colMeans(Y))%*% solve(Sigma.hat[1:p,1:p]) %*%t(t(colMeans(X)-colMeans(Y))))
+
+      ####### Results without considering confounders
+      Z2 = Z[,1:p]
+      SEM.results = SEM.fit(p,N,Z2,'Z',A[1:p,1:p])
+      Qest = SEM.results$Qest
+      Rdiag = SEM.results$Rdiag
+      #### test statistic: T= n1*n2/(n1+n2) (Xbar-Ybar)^T (I-Qhat) R^(_1)hat (I-Qhat) (Xbar-Ybar)
+      Sigma.hat = solve(diag(1,p)-Qest)%*%diag(Rdiag)%*%solve(t(diag(1,p)-Qest))
+      T.graph = (n[["X"]]*n[["Y"]])/(N)*(t(colMeans(X)-colMeans(Y))%*% solve(Sigma.hat[1:p,1:p]) %*%t(t(colMeans(X)-colMeans(Y))))
+      T.graph2 = (T.graph - p)/sqrt(2*p)
+
+      methodname = 'GraphSEM.chisq'
+      pval[methodname] =  pchisq(q=T.graph,df=p,lower.tail=FALSE) #pf(q=(N-p-1)/((N-2)*p)*T.graph,df1=p,df2=(N-1-p),lower.tail=FALSE)
+      rej[methodname] = ifelse(pval[methodname]<alpha,1,0) # decision: 1 if reject, 0 o.w.
+      methodname = 'GraphSEM.z'
+      pval[methodname] =  2*pnorm(q=abs(T.graph2),mean=0,sd=1,lower.tail=F) #pf(q=(N-p-1)/((N-2)*p)*T.graph,df1=p,df2=(N-1-p),lower.tail=FALSE)
+      rej[methodname] = ifelse(pval[methodname]<alpha,1,0) # decision: 1 if reject, 0 o.w.
+    }
+
+    ###### need to edit the codes in the following sections:
+    Data = list(Z = Z)
+    Qest = list()
+    Epsi = list()
+    Sest = list()
+    Rest = list()
+    Rinvest = list()
+    ##### Graph with errors:
+    if ('Missing' %in% error)
+    {
+      SEM.results = SEM.fit(p,N,Z,'Z', AMissing)
+      Qest = SEM.results$Qest
+      Rdiag = SEM.results$Rdiag
+      Sigma.hat = solve(diag(1,p)-Qest)%*%diag(Rdiag)%*%solve(t(diag(1,p)-Qest))
+      Omega.hat = t(diag(1,p)-Qest) %*% diag(1/Rdiag) %*% (diag(1,p)-Qest)
+      #Omega.hat = sqrtm(Omega.hat)
+      Omega.meandiff = Omega.hat %*% meandiff
+
+      methodname = "GraphSEM Missing"
+      if (type == 'clx'){
+        xbar.omega = Omega.hat %*% colMeans(X); ybar.omega = Omega.hat %*% colMeans(Y)
+        w1 = (Omega.hat %*% X[1,] - xbar.omega)%*%t(Omega.hat %*% X[1,] - xbar.omega)
+        w2 = (Omega.hat %*% Y[1,] - ybar.omega)%*%t(Omega.hat %*% Y[1,] - ybar.omega)
+        for (k.x in 2:n[[1]]){
+          w1 = w1 + (Omega.hat %*% X[k.x,] - xbar.omega)%*%t(Omega.hat %*% X[k.x,] - xbar.omega)
+        }
+        for (k.y in 2:n[[2]]){
+          w2 = w2 + (Omega.hat %*% Y[k.y,] - ybar.omega)%*%t(Omega.hat %*% Y[k.y,] - ybar.omega)
+        }
+        w1 = w1/n[[1]]; w2 = w2/n[[2]]
+        w1 = diag(w1); w2 = diag(w2) # w_i,i
+        w0 = (n[[1]]/(n[[1]]+n[[2]])) * w1 + (n[[2]]/(n[[1]]+n[[2]])) * w2
+        const = ((n[[1]]*n[[2]])/(n[[1]]+n[[2]]))
+        M.omega = const * max(Omega.meandiff^2/w0)
+        q.alpha = -log(pi) - 2*log(log((1-alpha)^(-1)))
+        pval[methodname] = 1 - exp((-1/sqrt(pi)) * exp(-(M.omega - 2*log(p) + log(log(p)))/2))
+        rej[methodname] = ifelse(M.omega >= 2*log(p) - log(log(p)) + q.alpha,1,0)
+      }
+    }
+    if ('Redundant' %in% error)
+    {
+      SEM.results = SEM.fit(p,N,Z,'Z', ARedundant)
+      Qest = SEM.results$Qest
+      Rdiag = SEM.results$Rdiag
+      Sigma.hat = solve(diag(1,p)-Qest)%*%diag(Rdiag)%*%solve(t(diag(1,p)-Qest))
+      Omega.hat = t(diag(1,p)-Qest) %*% diag(1/Rdiag) %*% (diag(1,p)-Qest)
+      #Omega.hat = sqrtm(Omega.hat)
+      Omega.meandiff = Omega.hat %*% meandiff
+      methodname = "GraphSEM Redundant"
+      if (type == 'clx'){
+        xbar.omega = Omega.hat %*% colMeans(X); ybar.omega = Omega.hat %*% colMeans(Y)
+        w1 = (Omega.hat %*% X[1,] - xbar.omega)%*%t(Omega.hat %*% X[1,] - xbar.omega)
+        w2 = (Omega.hat %*% Y[1,] - ybar.omega)%*%t(Omega.hat %*% Y[1,] - ybar.omega)
+        for (k.x in 2:n[[1]]){
+          w1 = w1 + (Omega.hat %*% X[k.x,] - xbar.omega)%*%t(Omega.hat %*% X[k.x,] - xbar.omega)
+        }
+        for (k.y in 2:n[[2]]){
+          w2 = w2 + (Omega.hat %*% Y[k.y,] - ybar.omega)%*%t(Omega.hat %*% Y[k.y,] - ybar.omega)
+        }
+        w1 = w1/n[[1]]; w2 = w2/n[[2]]
+        w1 = diag(w1); w2 = diag(w2) # w_i,i
+        w0 = (n[[1]]/(n[[1]]+n[[2]])) * w1 + (n[[2]]/(n[[1]]+n[[2]])) * w2
+        const = ((n[[1]]*n[[2]])/(n[[1]]+n[[2]]))
+        M.omega = const * max(Omega.meandiff^2/w0)
+        q.alpha = -log(pi) - 2*log(log((1-alpha)^(-1)))
+        pval[methodname] = 1 - exp((-1/sqrt(pi)) * exp(-(M.omega - 2*log(p) + log(log(p)))/2))
+        rej[methodname] = ifelse(M.omega >= 2*log(p) - log(log(p)) + q.alpha,1,0)
+      }
+    }
+    if ('Both' %in% error)
+    {
+      SEM.results = SEM.fit(p,N,Z,'Z', ABoth)
+      Qest = SEM.results$Qest
+      Rdiag = SEM.results$Rdiag
+      Sigma.hat = solve(diag(1,p)-Qest)%*%diag(Rdiag)%*%solve(t(diag(1,p)-Qest))
+      Omega.hat = t(diag(1,p)-Qest) %*% diag(1/Rdiag) %*% (diag(1,p)-Qest)
+      #Omega.hat = sqrtm(Omega.hat)
+      Omega.meandiff = Omega.hat %*% meandiff
+      methodname = "GraphSEM Both"
+      if (type == 'dlx'){
+        xbar.omega = Omega.hat %*% colMeans(X); ybar.omega = Omega.hat %*% colMeans(Y)
+        w1 = (Omega.hat %*% X[1,] - xbar.omega)%*%t(Omega.hat %*% X[1,] - xbar.omega)
+        w2 = (Omega.hat %*% Y[1,] - ybar.omega)%*%t(Omega.hat %*% Y[1,] - ybar.omega)
+        for (k.x in 2:n[[1]]){
+          w1 = w1 + (Omega.hat %*% X[k.x,] - xbar.omega)%*%t(Omega.hat %*% X[k.x,] - xbar.omega)
+        }
+        for (k.y in 2:n[[2]]){
+          w2 = w2 + (Omega.hat %*% Y[k.y,] - ybar.omega)%*%t(Omega.hat %*% Y[k.y,] - ybar.omega)
+        }
+        w1 = w1/n[[1]]; w2 = w2/n[[2]]
+        w1 = diag(w1); w2 = diag(w2) # w_i,i
+        w0 = (n[[1]]/(n[[1]]+n[[2]])) * w1 + (n[[2]]/(n[[1]]+n[[2]])) * w2
+        const = ((n[[1]]*n[[2]])/(n[[1]]+n[[2]]))
+        M.omega = const * max(Omega.meandiff^2/w0)
+        q.alpha = -log(pi) - 2*log(log((1-alpha)^(-1)))
+        pval[methodname] = 1 - exp((-1/sqrt(pi)) * exp(-(M.omega - 2*log(p) + log(log(p)))/2))
+        rej[methodname] = ifelse(M.omega >= 2*log(p) - log(log(p)) + q.alpha,1,0)
+      }
+    }
+  }
+
+  ###################### Graph-based T2 Method in Jacob et al. (2012): ######################
+  #### Set the value of k:
+  #if (nmin>=p){k = floor(p*graphT2.p)} # if k=p then graph-based T2 is equivalent to standard T2
+  #if (nmin<p){k = floor(min(nmin,p))} # if p>n, use k = n because we do not assume that the shift only exists
+  ## within the first k0 (<<p) components
+  A=Asign
+  Asym = A[1:p,1:p]
+  if (T == F)
+  {
+  if (graph.type == "DAG")
+  {
+    #### Graph T2 cannot handle DAG, transform A to the corresponding undirected adjacency matrix
+    Asym = matrix(0,p,p)
+    for (i in 1:(p-1))
+    {
+      for (j in (i+1):p)
+      {
+        Asym[i,j] = Asym[j,i] = ifelse((A[i,j]>0)||(A[j,i]>0),1,0)
+        Asym[i,i] = 0
+      }
+    }
+  }
+  }
+  ncp <- 0.5
+  sigma <- diag(p)/sqrt(p)
+  ## Build graph, decompose laplacian
+  lfA <- laplacianFromA(Asym)#,ltype="unnormalized"): note: this will create negative eigenvalues, but the results are the same
+  U <- lfA$U
+  l <- lfA$l
+  dist.l=sapply(1:(length(l)-1),function(x){l[x+1]-l[x]})
+  k=min(p-which(dist.l>1e-5)[1],n[[1]]+n[[2]]-5)
+  ## Build two samples with smooth mean shift
+  ## Do hypothesis testing
+  t <- graph.T2.test(X1=X,X2=Y,lfA=lfA,k=k)# T2.test(X,Y,k=k) # Raw T-square
+  #print(t$p.value)
+  #tu <- graph.T2.test(X,Y,lfA=lfA,k=k) # Filtered T-squares
+  #print(tu$p.value)
+  pval["Graph.T2"] = t$p.value
+  rej["Graph.T2"] = ifelse(t$p.value<alpha,1,0)
+  k = ncol(t$estimate)
+
+  ###################### Standard Hotelling's T^2: ######################
+  if (N > p)
+  {
+    S.pool = ((n[["X"]]-1)*cov(X) + (n[["Y"]]-1)*cov(Y))/(N - 2)
+    if (qr(S.pool)$rank >= p) #even if n1+n2>=p, sample covariance can still be singular
+    {
+      #### test statistic & p-value::
+      T.h = (n[["X"]]*n[["Y"]])/(N)*(t(meandiff)%*%solve(S.pool, toler=1e-80)%*%t(t(meandiff)))
+      pval["T2"] = pf(q=(N-p-1)/((N-2)*p)*T.h,df1=p,df2=(N-1-p),lower.tail=FALSE)
+      rej["T2"] = ifelse(pval["T2"]<alpha,1,0)
+      #pval["T2"] = pchisq(q=T.h,df=p,lower.tail=FALSE)
+      #rej["T2"] = ifelse(pval["T2"]<alpha,1,0) # decision: 1 if reject, 0 o.w.
+    }
+  }
+  ###################### BS: ######################
+  #Z=as.matrix(Z)
+  Z = Z0
+  X = as.matrix(X)
+  Y = as.matrix(Y)
+  #Sn = round(matrix(rowSums(sapply(1:nrow(Z),FUN=function(x){Z[x,]%*%t(Z[x,])})),p,p),6)/(N-2)
+  #Bnsq = (N-2)^2/((N-2+2)*(N-2-1)) * (matrix.trace(Sn%*%Sn) - (1/N)*(matrix.trace(Sn))^2)
+  #T.bs = ((n[['X']]*n[['Y']])/(N)*t(colMeans(X)-colMeans(Y))%*%(colMeans(X)-colMeans(Y)) - matrix.trace(Sn))/(sqrt(2*((N-2+1)/(N-2)) * Bnsq))
+  ##pval["BS"] = pnorm(T.bs,lower.tail=FALSE)
+  #rej["BS"] = ifelse( (T.bs>qnorm(1-alpha,0,1)),1,0)
+  bs = apval_Bai1996(sam1=X, sam2=Y) # from aSPU package
+  pval["BS"] = bs$pval
+  rej["BS"] = ifelse(pval["BS"]<alpha,1,0)
+
+  ###################### CHQ: ######################
+  #T.ch_q = ch_q_test_cpp(X,Y)
+  #rej["CH-Q"] = ifelse( (T.ch_q>qnorm(1-alpha,0,1)),1,0)
+  CH_Q = apval_Chen2010(sam1=X, sam2=Y, eq.cov = TRUE) # from aSPU package, faster than ChenQin.test(X,Y)
+  pval["CH-Q"] = CH_Q$pval
+  rej["CH-Q"] = ifelse(pval["CH-Q"]<alpha,1,0)
+
+  ###################### SK: ######################
+  SK = SK.test(X,Y)
+  T.sk = SK$TSvalue
+  pval["SK"] = SK$pvalue
+  rej["SK"] = ifelse(SK$pvalue<alpha,1,0)
+
+  ###################### CLX: ######################
+  CLX = apval_Cai2014(sam1=X, sam2=Y) #from aSPU package, can also use CLX.test.equalcov(X,Y) from GCT package
+  pval["CLX"] = CLX$pval
+  rej["CLX"] = ifelse(pval["CLX"]<alpha,1,0)
+
+  ###################### GCT: ######################
+  GCT = GCT.test(X,Y,r=ceiling(2/3*p^(1/2)))#r=10) #in their paper r=L=10,15,20, smaller l leads to larger pvalue and smaller power
+  # L = 2/3*p^(1/2), smaller L leads to more strict type I error control
+  pval["GCT"] = GCT$pvalue
+  rej["GCT"] = ifelse(GCT$pvalue<alpha,1,0)
+
+  ####################### aSPU: ######################
+  if (p>=50) #aSPU can only work when p>=50
+  {
+    aspu = apval_aSPU(sam1=X,sam2=Y) #default: eq.cov = TRUE
+    pval["aSPU"] = aspu$pval["aSPU"]
+    rej["aSPU"] = ifelse(pval["aSPU"]<alpha,1,0)
+    aspu.lambda = aspu$pow[which.min(aspu$pval)] # selected lambda
+  }
+
+  #print(paste0("Complete Simulation ",sim))
+  if (p>=50) #aSPU can only work when p>=50
+  {
+    return(list(rej=rej,pval=pval,T.graph=T.graph, aspu.lambda = aspu.lambda,k=k))
+  }
+  if (p< 50) #do not report aSPU
+  {
+    return(list(rej=rej,pval=pval,T.graph=T.graph,k=k))
+  }
+}
+
+
+
+##### generate geometric series
+geomSeries <- function(base, max) {
+  base^(0:floor(log(max, base)))
+}
+
+
+gg.manhattan <- function(df, threshold, hlight, col, ylims, title){
+  # format df
+  df.tmp <- df %>%
+
+    # Compute chromosome size
+    group_by(CHR) %>%
+    summarise(chr_len=max(BP)) %>%
+
+    # Calculate cumulative position of each chromosome
+    mutate(tot=cumsum(chr_len)-chr_len) %>%
+    select(-chr_len) %>%
+
+    # Add this info to the initial dataset
+    left_join(df, ., by=c("CHR"="CHR")) %>%
+
+    # Add a cumulative position of each SNP
+    arrange(CHR, BP) %>%
+    mutate( BPcum=BP+tot) %>%
+
+    # Add highlight and annotation information
+    mutate( is_highlight=ifelse(SNP %in% hlight, "yes", "no")) %>%
+    mutate( is_annotate=ifelse(P < threshold, "yes", "no"))
+
+  # get chromosome center positions for x-axis
+  axisdf <- df.tmp %>% group_by(CHR) %>% summarize(center=( max(BPcum) + min(BPcum) ) / 2 )
+
+  ggplot(df.tmp, aes(x=BPcum, y=-log10(P))) +
+    # Show all points
+    geom_point(aes(color=as.factor(CHR)), alpha=0.8, size=2) +
+    scale_color_manual(values = rep(col, 22 )) +
+
+    # custom X axis:
+    scale_x_continuous( label = axisdf$CHR, breaks= axisdf$center ) +
+    scale_y_continuous(expand = c(0, 0), limits = ylims) + # expand=c(0,0)removes space between plot area and x axis
+
+    # add plot and axis titles
+    ggtitle(paste0(title)) +
+    labs(x = "Chromosome") +
+
+    # add genome-wide sig and sugg lines
+    geom_hline(yintercept = -log10(sig)) +
+    geom_hline(yintercept = -log10(sugg), linetype="dashed") +
+
+    # Add highlighted points
+    #geom_point(data=subset(df.tmp, is_highlight=="yes"), color="orange", size=2) +
+
+    # Add label using ggrepel to avoid overlapping
+    geom_label_repel(data=df.tmp[df.tmp$is_annotate=="yes",], aes(label=as.factor(SNP), alpha=0.7), size=5, force=1.3) +
+
+    # Custom the theme:
+    theme_bw(base_size = 22) +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      legend.position="none",
+      panel.border = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank()
+    )
+}
+
+
+percent <- function(x, digits = 2, format = "f", ...) {
+  paste0(formatC(100 * x, format = format, digits = digits, ...), "%")
+}
+
+
+
+graph.T2.test = function (X1, X2, G = NULL, lfA = NULL, k = ncol(X1))
+{
+  tol <- 1e-80
+  p <- ncol(X1)
+  if (is.null(lfA)) {
+    if (is.null(G))
+      A <- diag(rep(1, p))
+    else A <- as(G, "graphAM")@adjMat
+    lfA <- laplacianFromA(A, ..., k = k)
+  }
+  U <- lfA$U
+  egVal <- lfA$l
+  kIdx <- (egVal <= max(egVal[k], tol))
+  rk <- max(which(kIdx))
+  ut <- T2.test(X1 %*% U[, 1:rk, drop = FALSE], X2 %*% U[,1:rk, drop = FALSE])
+}
+
+

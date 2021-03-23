@@ -415,4 +415,3 @@ output = mrle(sumtable, thetak.sign, Cov.mat, alpha0)
 ####  Reference:
       1. Jin, J., Qi, G., Yu, Z. and Chatterjee, N., 2021. Mendelian Randomization Analysis Using Multiple Biomarkers of an Underlying Common Exposure. bioRxiv.  [https://doi.org/10.1101/2021.02.05.429979](https://doi.org/10.1101/2021.02.05.429979)
 
-# MRLE2

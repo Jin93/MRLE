@@ -1,0 +1,173 @@
+library(mvtnorm)
+library(devtools)
+library(lavaan)
+library(gdata)
+library(xtable)
+library(MASS) # for the ginv
+library(data.table)
+library(corpcor) #for pseudoinverse
+library(parallel)
+library(MendelianRandomization) # for mr_ivw
+library(dplyr)
+library(readr)
+library(R.utils) # for gzip
+library(stringr) # for str_detect
+library(genio) # a package to facilitate reading and writing genetics data. The focus of this vignette is processing plink BED/BIM/FAM files.
+library(MRMix)
+library(dplyr)
+library(bigsnpr)
+library(bigreadr)
+source('~/mr/code/mrle_functions.R')
+##### combine with outcome data
+alpha0 = 5e-2
+z0 = qnorm(p=alpha0/2,lower.tail=FALSE)
+
+traitvec = c('jak2', 'stat3', 'il6', 'il6r')
+exposure = 'inflammation'
+outcome = 'cad'
+# infl = bigreadr::fread2('/dcl01/chatterj/data/zyu/MRLE/clumped_jak2_stat3_il6_il6r.txt')
+# cad = bigreadr::fread2('/dcl01/chatterj/data/Rawdata-summarydata/CARDIoGRAMplusC4D_Consortium/cardiogram_gwas_results/CARDIoGRAM_GWAS_RESULTS.txt')
+# cad = cad[,c('SNP','reference_allele','other_allele','pvalue','log_odds','log_odds_se')]
+# colnames(cad)[which(colnames(cad) == 'SNP')] = 'rsid' 
+# sumall = merge(infl,cad,by='rsid')
+
+sumall = bigreadr::fread2('/dcl01/chatterj/data/zyu/MRLE/v2_clumped_jak2_stat3_il6_il6r_cad.txt')
+#colnames(sumall)[2:5] = c('Chr','Pos','A1','A2')
+#colnames(sumall)[which(colnames(sumall) == 'logOR.cad_use')] = paste0('beta.',outcome)
+####################################################################################################
+##################################### Step 1: Data Preprocessing ###################################
+######## Merge: match SNPs between biomarkers using rsid; ##########################################
+######## Standardization of the biomarker data (/se(trait)) ########################################
+######## SNP filtering for biomarkers:
+############### 1. with MAF<0.01
+############### 2. with effective sample size < 0.67 * 0.9 percentile
+############### 3. within the major histocompatibility complex (MHC) region ( 26Mb \~ 34Mb on chromosome 6)
+############### 4. alleles do not match those in the 1000 Genomes Project.
+######## Select SNPs that reach GWAS significance
+######## Standardization of the outcome data
+######## SNP filtering for the outcome data
+############### 1. with MAF<0.01, no need
+############### 2. with effective sample size < 0.67 * 0.9 percentile
+############### 3. within the major histocompatibility complex (MHC) region ( 26Mb \~ 34Mb on chromosome 6), no need
+############### 4. alleles do not match those in the 1000 Genomes Project, no need
+######## Match SNPs between biomarkers and the outcome by chr:loc ##################################
+######## Calculate the correlation between summary statistics
+######## LD pruning/clumping
+####################################################################################################
+######## Merge files:
+select.type = 'intersection'
+p.clump = alpha = 1e-3
+z = qnorm(p=alpha/2,lower.tail=FALSE)
+# p.crp = 5e-6 # (p.clump == 5e-5) * 5e-8 + (p.clump == 5e-4) * 5e-6
+# z.crp = qnorm(p=p.crp/2,lower.tail=FALSE)
+
+pc = p.clump
+############### data analysis
+K=4
+multiplebiom = T
+if (multiplebiom == T) {methods = c(paste0('IVW.',traitvec),paste0('MRMix.',traitvec),'GMM')}
+if (multiplebiom == F) {methods = c('IVW','MRMix','GMM')}
+maf.thr = 0.01 #(default in function preprocess)
+### IL6, IL16, TNF
+#N.biomarker = c(3309,8189,3526,3454,8293,134803)[1:K]
+#names(N.biomarker) = traitvec
+#sd.biomarkers = c(2.47,49.9,10.5,147,24.8,4.245)[1:K] 
+#names(sd.biomarkers) = traitvec
+thetak.sign = c(1,1,1,-1)
+
+
+##################
+##################
+which.biomarkers = 1:4
+traitvec0 = traitvec
+traitvec = traitvec0[which.biomarkers]
+K0=K
+K=length(traitvec)
+thetak.sign = thetak.sign[which.biomarkers]
+multiplebiom = T
+if (multiplebiom == T) {methods = c(paste0('IVW.',traitvec),paste0('MRMix.',traitvec),'GMM')}
+if (multiplebiom == F) {methods = c('IVW','MRMix','GMM')}
+######### Filtering: select the SNPs that reach genome-wide significance for Bks: 
+Bkind = list()
+sign.level = ifelse(traitvec == 'CRP', p.crp, alpha)
+for (i in 1:K)
+{
+  Bkind[[i]] = ifelse(sumall[[paste0('p.',traitvec[i])]]<= sign.level[i],1,0)
+}
+Bkinds = colSums(matrix(unlist(Bkind),K,nrow(sumall),byrow=T))
+ivind = which(Bkinds > ifelse(select.type == 'union',0,1)) # index of the SNPs that are associated with at least one of the Bks
+ivindk = lapply(1:K,FUN=function(x){which(Bkind[[x]]>0)}) # index of the SNPs that are associated with each Bk
+sumtable = sumall[ivind,]
+
+which.significant = which(sapply(1:K,function(x){length(ivindk[[x]])})>0)
+traitvec = traitvec[which.significant]
+K=length(traitvec)
+thetak.sign = thetak.sign[which.significant]
+multiplebiom = T
+if (multiplebiom == T) {methods = c(paste0('IVW.',traitvec),paste0('MRMix.',traitvec),'GMM')}
+if (multiplebiom == F) {methods = c('IVW','MRMix','GMM')}
+
+##### may exclude some biomarkers:
+trait.spec = NULL
+for (trait in c(traitvec,outcome)){
+  trait.spec = c(trait.spec, paste0(c("beta.", "se.", "p."), trait))
+}
+sumtable = sumtable[,c("Chr","Pos","rsid", "A1", "A2", trait.spec)]
+
+
+##### calculate between-biomarker correlation: cor.mat
+ldsc.out.path="/dcl01/chatterj/data/jin/ldsc.out/"
+ldsc.path = "/dcl01/chatterj/data/jin/ldsc/"
+python.path = "~/anaconda2/bin/python" #cannot be default! change to anaconda2
+ldscore.path = file.path(ldsc.path,"eur_w_ld_chr/") # default, does not need to be specified
+mydir = '/dcl01/chatterj/data/jin/ldclump/'
+refdir = '/dcl01/chatterj/data/diptavo/1KG/'
+load('/dcl01/chatterj/data/zyu/MRLE/sumstats.RData')
+#source("~/mr/code/gmm_functions_datanalysis.R")
+source("~/mr/code/functions_inflammation.R")
+covresults = covinfo_inflammation(sumstats, out.path=ldsc.out.path, ldsc.path, python.path, ldscore.path = file.path(ldsc.path,"eur_w_ld_chr/"), maf.thr, mergeallele = TRUE, data.prep = F, K, screening = F)
+#coherit.mat: Genetic covariance matrix
+#ldscint.mat: LD score regression intercept matrix.
+cor.mat = covresults$ldscint.mat
+save(covresults,cor.mat,file="/dcl01/chatterj/data/jin/mrle/cor.mat.RData")
+
+cov.mat = matrix(0,K+1,K+1)
+cov.mat[2:(K+1),2:(K+1)] = cor.mat[traitvec,traitvec]
+diag(cov.mat) = 1
+cor.mat = cov.mat # redefine cor.mat by adding the correlation between biomarkers and the outcome
+Cov.mat = list()
+for (ni in 1:nrow(sumtable))
+{
+  beta.sd = diag(sapply(c(outcome,traitvec), function(x) {(sumtable[[paste0('se.',x)]][ni])}))
+  Cov.mat[[ni]] = beta.sd %*% cor.mat %*% beta.sd
+}
+beta.sd = diag(sapply(c(outcome,traitvec), function(x) median(sumtable[[paste0('se.',x)]])))
+c.mat = beta.sd %*% cor.mat %*% beta.sd
+########## Data Analysis
+### data for ivw analysis
+Bkind = list()
+ivw.ind = list()
+sign.level = ifelse(traitvec == 'CRP', p.crp, alpha)
+for (i in 1:K)
+{
+  Bkind[[i]] = ifelse(sumtable[[paste0('p.',traitvec[i])]]<= sign.level[i],1,0)
+}
+Bkinds = colSums(matrix(unlist(Bkind),K,nrow(sumtable),byrow=T))
+ivind = which(Bkinds > ifelse(select.type == 'union',0,1)) # index of the SNPs that are associated with at least one of the Bks
+ivindk = lapply(1:K,FUN=function(x){which(Bkind[[x]]>0)}) # index of the SNPs that are associated with each Bk
+names(ivindk) = traitvec
+sumtable0=sumtable
+
+set.seed(2020)
+output = GMManalysis(sumtable)
+print(paste0(select.type,' ',p.clump,' r2=',r2,' kb=',kb))
+
+snp.rsid = sumtable$rsid
+M=matrix(c(sapply(1:K,function(x){length(ivindk[[x]])}),length(ivind)),ncol=1)
+colnames(M) = 'M'
+#names(M) = c(traitvec,'union')
+output[['outcome']] = cbind(c(rep(M[1:K],2),M[K+1]),output[['outcome']])
+output
+save(output, eta.est, file=paste0('/dcl01/chatterj/data/jin/mrle/results.RData'))
+#}
+#}

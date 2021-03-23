@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1616197565315.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "A22EEFFA",
+    "lastKnownWriteTime" : 1616202650,
+    "last_content_update" : 1616202650045,
+    "path" : "~/Dropbox/JHU/MR/Github/code/example.R",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "125,0",
+        "scrollLine" : "109"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 5,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}
