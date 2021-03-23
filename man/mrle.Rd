@@ -4,7 +4,7 @@
 \alias{mrle}
 \title{Mendelian Randomization analysis using multiple Biomarkers of an underlying common exposure}
 \usage{
-mrle(sumtable, thetak_sign, Cov.mat, alpha0 = 0.05)
+mrle(sumtable, thetak_sign, Cov.mat, alpha0 = 0.05, ivindk)
 }
 \arguments{
 \item{sumtable}{the M by (K+1)*3+6 input matrix containing}
@@ -17,9 +17,12 @@ The first variable corresponds to the outcome; the 2nd to the (K+1)-th variables
 the k-th observable traits.}
 
 \item{alpha0}{significance level of the hypothesis test.}
+
+\item{ivindk}{a list of indices for the IVW for each biomarker that will be used
+for obtaining the IVW estimators.}
 }
 \value{
-A matrix of the infile
+A matrix of the testing results based on IVW estimator and MRLE
 }
 \description{
 This function conducts Mendelian Randomization (MR) analysis for a latent exposure (MRLE).
