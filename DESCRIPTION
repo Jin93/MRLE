@@ -6,7 +6,7 @@ Authors@R:
            family = "Jin",
            role = c("aut", "cre"),
            email = "jjin31@jhu.edu")
-Description: Provides R functions for conducting MR analysis for Latent Exposure (MRLE).
+Description: R functions for conduting MR analysis for a Latent Exposure (MRLE).
 License: GPL-3
 Encoding: UTF-8
 LazyData: true
