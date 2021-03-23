@@ -53,10 +53,10 @@ maf.thr = 0.01
        5. data/sumdata_CRP.txt.zip 
 
 #### Please note that these input GWAS data should be pre-processed by a SNP filtering step, where the SNPs that have one or more of the following conditions are removed:
-    1. MAF < 0.01  
-    2. Effective sample size < 0.67 * 0.9 percentile
-    3. Within the major histocompatibility complex (MHC) region ( 26Mb \~ 34Mb on chromosome 6)
-    4. Alleles do not match those in the 1000 Genomes Project.
+       1. MAF < 0.01  
+       2. Effective sample size < 0.67 * 0.9 percentile
+       3. Within the major histocompatibility complex (MHC) region ( 26Mb \~ 34Mb on chromosome 6)
+       4. Alleles do not match those in the 1000 Genomes Project.
 
 #### We then use the following code to merge GWAS summary statistics of the biomarkers:
 ``` r
