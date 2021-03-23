@@ -346,7 +346,7 @@ MRLE     55  9.313389e-23      1         1
 ```
 
 ###  References:
-      1. Bulik-Sullivan, B., Finucane, H.K., Anttila, V., Gusev, A., Day, F.R., Loh, P.R., Duncan, L., Perry, J.R., Patterson, N., Robinson, E.B. and Daly, M.J., 2015. An atlas of genetic correlations across human diseases and traits. Nature genetics, 47(11), p.1236. [https://www.nature.com/articles/ng.3406.pdf?origin=ppub](https://www.nature.com/articles/ng.3406.pdf?origin=ppub)
-      2. Bulik-Sullivan, B.K., Loh, P.R., Finucane, H.K., Ripke, S., Yang, J., Patterson, N., Daly, M.J., Price, A.L. and Neale, B.M., 2015. LD Score regression distinguishes confounding from polygenicity in genome-wide association studies. Nature genetics, 47(3), pp.291-295. [https://www.nature.com/articles/ng.3211](https://www.nature.com/articles/ng.3211)
-      3. Jin, J., Qi, G., Yu, Z. and Chatterjee, N., 2021. Mendelian Randomization Analysis Using Multiple Biomarkers of an Underlying Common Exposure. bioRxiv.  [https://doi.org/10.1101/2021.02.05.429979](https://doi.org/10.1101/2021.02.05.429979)
+      1. Jin, J., Qi, G., Yu, Z. and Chatterjee, N., 2021. Mendelian Randomization Analysis Using Multiple Biomarkers of an Underlying Common Exposure. bioRxiv.  [https://doi.org/10.1101/2021.02.05.429979](https://doi.org/10.1101/2021.02.05.429979)
+      2. Bulik-Sullivan, B., Finucane, H.K., Anttila, V., Gusev, A., Day, F.R., Loh, P.R., Duncan, L., Perry, J.R., Patterson, N., Robinson, E.B. and Daly, M.J., 2015. An atlas of genetic correlations across human diseases and traits. Nature genetics, 47(11), p.1236. [https://www.nature.com/articles/ng.3406.pdf?origin=ppub](https://www.nature.com/articles/ng.3406.pdf?origin=ppub)
+      3. Bulik-Sullivan, B.K., Loh, P.R., Finucane, H.K., Ripke, S., Yang, J., Patterson, N., Daly, M.J., Price, A.L. and Neale, B.M., 2015. LD Score regression distinguishes confounding from polygenicity in genome-wide association studies. Nature genetics, 47(3), pp.291-295. [https://www.nature.com/articles/ng.3211](https://www.nature.com/articles/ng.3211)
 
