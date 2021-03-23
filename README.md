@@ -15,22 +15,14 @@ library(dplyr)
 library(genio)
 library(data.table)
 library(MendelianRandomization) # for conducting test based on the IVW estimator
+# setwd('~/MRLE/') # set path to the Github directory
 ```
 
 ## An example - testing the causal effect of chronic inflammation on rheumatoid arthritis (RA)
 
 ### Step 1: data preparation
 
-First, generate the following matrices and save them in the data/ folder:
-    1. GWAS summary-level association statistics for the biomarkers (with A1 and A2 matched across biomarkers)
-    ``` r
-    SNPID	Chr	Position(hg19)	A1	A2	OR(A1)	OR_95%CIlow	OR_95%CIup	pvalue_raw	pvalue	z	beta_scale	sigMsq
-    rs3094315	1	752566	A	G	1.14	1.03	1.26	0.0093	0.0108228574562146	2.54836690974419	0.0244961759708397	9.24001490901232e-05
-    rs3131972	1	752721	A	G	0.88	0.79	0.97	0.009	0.0146348973490792	-2.44128999686958	-0.0234668991857106	9.24001490901232e-05
-    rs3131969	1	754182	A	G	0.85	0.75	0.96	0.0088	0.00985974473267805	-2.58070972418631	-0.0248070712626192	9.24001490901232e-05
-    ```
-    3. 
-##### data sources:
+#### data sources:
     1. GWAS summary data for RA   
     Okada, Y., Wu, D., Trynka, G., Raj, T., Terao, C., Ikari, K., Kochi, Y., Ohmura, K., Suzuki, A., Yoshida, S. and Graham, R.R., 2014. Genetics of rheumatoid arthritis contributes to biology and drug discovery. Nature, 506(7488), pp.376-381.
     2. GWAS summary data for CRP   
@@ -52,60 +44,35 @@ thetak.sign = rep(1,K) # directions of the causal effect of chronic inflammation
 alpha0 = 5e-2
 z0 = qnorm(p=alpha0/2,lower.tail=FALSE)
 maf.thr = 0.01
+```
 
-####################################################################################################
-##################################### Step 1: Data Preprocessing ###################################
-################## Merge: match GWAS summary statistics of the biomarkers ##########################
-######## SNP filtering - remove SNPs that have one or more of the following conditions
-############### 1. MAF < 0.01
-############### 2. effective sample size < 0.67 * 0.9 percentile
-############### 3. within the major histocompatibility complex (MHC) region ( 26Mb \~ 34Mb on chromosome 6)
-############### 4. alleles do not match those in the 1000 Genomes Project.
-######## match A1 and A2 across biomarkers and save them in columns A1, A2
-# setwd('~/MRLE/')
-# GWAS data for cytokines
-sumdata1 = bigreadr::fread2('data/sumdata_cytokines.txt')
-# GWAS data for CRP
-sumdata2 = bigreadr::fread2('data/sumdata_crp.txt')
-sumbiomarkers = merge(sumdata1,sumdata2,by='rsid')
-#### match A1 and A2 of CRP GWAS data (columns A1.CRP, A2.CRP) to A1 and A2 of the rest of the biomarkers (columns A1, A2)
-#### re
-## scenario 1: A1 A2 flipped between CRP and the other biomarkers
-inds.flipped = ((sumbiomarkers[["A1"]] == sumbiomarkers[[paste0('A2.CRP')]])&(sumbiomarkers[["A2"]] == sumbiomarkers[[paste0('A1.CRP')]]))
-## match to biomarkers A1 A2
-if (sum(inds.flipped) > 0){
-  sumbiomarkers[[paste0("beta.CRP")]][inds.flipped] = -sumbiomarkers[[paste0("beta.CRP")]][inds.flipped]
-  sumbiomarkers[[paste0("A1.CRP")]][inds.flipped] = sumbiomarkers[['A1']][inds.flipped]
-  sumbiomarkers[[paste0("A2.CRP")]][inds.flipped] = sumbiomarkers[['A2']][inds.flipped]
-}
-## scenario 2: A1 A2 flipped; modifiable strand-ambiguous:
-combine.alleles = function(x) paste(x,collapse='')
-alleles = cbind(sumbiomarkers[["A1"]], sumbiomarkers[["A2"]], sumbiomarkers[[paste0('A1.CRP')]], sumbiomarkers[[paste0('A2.CRP')]])
-alleles = apply(alleles,1,combine.alleles)
-inds.ambiguous= which(alleles %in% c('ACGT','AGCT','TCGA','TGCA','CATG','CTAG','GATC','GTAC'))
-if (length(inds.ambiguous) > 0){
-  sumbiomarkers[[paste0("beta.CRP")]][inds.ambiguous] = -sumbiomarkers[[paste0("beta.CRP")]][inds.ambiguous]
-  sumbiomarkers[[paste0("A1.CRP")]][inds.ambiguous] = sumbiomarkers[['A1']][inds.ambiguous]
-  sumbiomarkers[[paste0("A2.CRP")]][inds.ambiguous] = sumbiomarkers[['A2']][inds.ambiguous]
-}
-###### now decide which ones to keep
-inds.ambiguous.keep = alleles %in% c('ACTG','AGTC','TCAG','TGAC','CAGT','CTGA','GACT','GTCA')
-if (sum(inds.ambiguous.keep) > 0){
-  sumbiomarkers[[paste0("A1.CRP")]][inds.ambiguous.keep] = sumbiomarkers[['A1']][inds.ambiguous.keep]
-  sumbiomarkers[[paste0("A2.CRP")]][inds.ambiguous.keep] = sumbiomarkers[['A2']][inds.ambiguous.keep]
-}
-inds.match.keep = ((sumbiomarkers[["A1"]] == sumbiomarkers[[paste0('A1.CRP')]])&(sumbiomarkers[["A2"]] == sumbiomarkers[[paste0('A2.CRP')]]))
-if (sum(inds.ambiguous.keep)>0){
-  inds.keep = c(which(inds.ambiguous.keep),which(inds.match.keep))
-}
-if (sum(inds.ambiguous.keep)==0){
-  inds.keep = which(inds.match.keep)
-}
-sumbiomarkers = sumbiomarkers[inds.keep,]
-sumbiomarkers = sumbiomarkers[,-which(colnames(sumbiomarkers) %in% c('A1.CRP','A2.CRP'))]
-write_delim(sumbiomarkers, file='data/sumbiomarkers.txt', delim='\t')
+Before running the following R code, please unzip the following example data files and store them in data/ folder.
+    1. data/sumdata_IL6.txt.zip  
+    2. data/sumdata_IL8.txt.zip  
+    3. data/sumdata_TNF.txt.zip  
+    4. data/sumdata_MCP1.txt.zip  
+    5. data/sumdata_CRP.txt.zip 
 
-# ------------- Load GWAS summary data for the outcome
+Please note that these input GWAS data should be pre-processed by a SNP filtering step, where the SNPs that have one or more of the following conditions are removed:
+    1. MAF < 0.01  
+    2. Effective sample size < 0.67 * 0.9 percentile
+    3. Within the major histocompatibility complex (MHC) region ( 26Mb \~ 34Mb on chromosome 6)
+    4. Alleles do not match those in the 1000 Genomes Project.
+
+Then we use the following code to merge GWAS summary statistics of the biomarkers:
+``` r
+sumdata1 = bigreadr::fread2(paste0('data/sumdata_',traitvec[1],'.txt'))
+for (k in 2:K){
+  tem = bigreadr::fread2(paste0('data/sumdata_',traitvec[k],'.txt'))
+  tem = tem[,c('rsid', 'A1', 'A2', paste0(c('beta', 'se', 'P'), '.', traitvec[k]))]
+  sumdata1 = sumdata_merge(sumdata1, tem, 'A1', 'A2', 'A1', 'A2', paste0('beta.',traitvec[k]))
+}
+sumbiomarkers = sumdata1; rm(sumdata1)
+# write_delim(sumbiomarkers, file='data/sumbiomarkers.txt', delim='\t')
+```
+
+Load GWAS summary data for the outcome
+``` r
 sumoutcome = bigreadr::fread2('data/raw_sumdata_ra.txt')
 sumoutcome$SE = log(sumoutcome$`OR(A1)`)/sumoutcome$z
 sumoutcome = sumoutcome[,c('Chr','Position(hg19)','SNPID','A1','A2','OR(A1)','SE','pvalue')]
@@ -123,49 +90,18 @@ colnames(sumoutcome)[which(colnames(sumoutcome) == 'MarkerName')] = 'rsid'
 sumoutcome = sumoutcome[,c('rsid', 'A1', 'A2', 'beta', 'se', 'P')]
 names(sumoutcome)[2:ncol(sumoutcome)] = paste0(names(sumoutcome)[2:ncol(sumoutcome)],'.',outcome)
 sumoutcome$rsid = as.character(sumoutcome$rsid)
-# ------------- combine GWAS summary data for biomarkers with GWAS summary data for the outcome
-sumdata = sumbiomarkers %>% inner_join(sumoutcome, by = 'rsid')
-sumdata = sumdata[complete.cases(sumdata),]
+```
 
-#### match A1 and A2 of the outcome (columns A1.outcome, A2.outcome) to A1 and A2 of the biomarkers (columns A1, A2)
-#### re
-## scenario 1: A1 A2 flipped between the biomarker and the outcome
-inds.flipped = ((sumdata[["A1"]] == sumdata[[paste0('A2.',outcome)]])&(sumdata[["A2"]] == sumdata[[paste0('A1.',outcome)]]))
-## match to biomarkers A1 A2
-if (sum(inds.flipped) > 0){
-  sumdata[[paste0("beta.",outcome)]][inds.flipped] = -sumdata[[paste0("beta.",outcome)]][inds.flipped]
-  sumdata[[paste0("A1.",outcome)]][inds.flipped] = sumdata[['A1']][inds.flipped]
-  sumdata[[paste0("A2.",outcome)]][inds.flipped] = sumdata[['A2']][inds.flipped]
-}
-## scenario 2: A1 A2 flipped between the biomarker and the outcome; modifiable strand-ambiguous:
-alleles = cbind(sumdata[["A1"]], sumdata[["A2"]], sumdata[[paste0('A1.',outcome)]], sumdata[[paste0('A2.',outcome)]])
-alleles = apply(alleles,1,combine.alleles)
-inds.ambiguous= which(alleles %in% c('ACGT','AGCT','TCGA','TGCA','CATG','CTAG','GATC','GTAC'))
-if (length(inds.ambiguous) > 0){
-  sumdata[[paste0("beta.",outcome)]][inds.ambiguous] = -sumdata[[paste0("beta.",outcome)]][inds.ambiguous]
-  sumdata[[paste0("A1.",outcome)]][inds.ambiguous] = sumdata[['A1']][inds.ambiguous]
-  sumdata[[paste0("A2.",outcome)]][inds.ambiguous] = sumdata[['A2']][inds.ambiguous]
-}
-###### now decide which ones to keep
-inds.ambiguous.keep = alleles %in% c('ACTG','AGTC','TCAG','TGAC','CAGT','CTGA','GACT','GTCA')
-if (sum(inds.ambiguous.keep) > 0){
-  sumdata[[paste0("A1.",outcome)]][inds.ambiguous.keep] = sumdata[['A1']][inds.ambiguous.keep]
-  sumdata[[paste0("A2.",outcome)]][inds.ambiguous.keep] = sumdata[['A2']][inds.ambiguous.keep]
-}
-inds.match.keep = ((sumdata[["A1"]] == sumdata[[paste0('A1.',outcome)]])&(sumdata[["A2"]] == sumdata[[paste0('A2.',outcome)]]))
-if (sum(inds.ambiguous.keep)>0){
-  inds.keep = c(which(inds.ambiguous.keep),which(inds.match.keep))
-}
-if (sum(inds.ambiguous.keep)==0){
-  inds.keep = which(inds.match.keep)
-}
-sumdata = sumdata[inds.keep,]
+Combine it with GWAS summary data for the biomarkers
+```r
+sumdata = sumdata_merge(sumbiomarkers, sumoutcome, 'A1', 'A2', paste0('A1.',outcome), paste0('A2.',outcome), paste0('beta.',outcome))
 
 # Extract trait-specific column names
 trait.spec = NULL
 for (trait in c(traitvec,outcome)){
   trait.spec = c(trait.spec, paste0(c("beta.", "se.", "P."), trait))
 }
+
 sumdata = sumdata[,c("loc","rsid", "A1", "A2", trait.spec)]
 sumdata <- sumdata %>%
   mutate(position = strsplit(loc, split = ':')) %>%
@@ -184,9 +120,8 @@ ind1 = ifelse(sumdata[[paste0('P.',traitvec[1])]] <= alpha1, 1, 0)
 ind2 = ifelse(sumdata[[paste0('P.',traitvec[2])]] <= alpha1, 1, 0)
 ind3 = ifelse(sumdata[[paste0('P.',traitvec[3])]] <= alpha1, 1, 0)
 ind4 = ifelse(sumdata[[paste0('P.',traitvec[4])]] <= alpha1, 1, 0)
-ind5 = ifelse(sumdata[[paste0('P.',traitvec[5])]] <= alpha1, 1, 0)
-ind6 = ifelse(sumdata[[paste0('P.',traitvec[6])]] <= alpha2, 1, 0)
-ind0 = ind1 + ind2 + ind3 + ind4 + ind5 + ind6
+ind5 = ifelse(sumdata[[paste0('P.',traitvec[5])]] <= alpha2, 1, 0)
+ind0 = ind1 + ind2 + ind3 + ind4 + ind5
 sumdata = sumdata[ind0 >= 2,]
 
 conf.rsid = readRDS(paste0('data/rsid_confounding.rds'))
@@ -217,36 +152,31 @@ for (chr in 1:22){
     snpinfo$ref <- 0
     snpinfo$alt <- 0
     ### delete the one duplicated SNP
-    if (chr == 5){
+    if ((chr == 5)&('rs12186596' %in% snpinfo$id)){
       snpinfo = snpinfo[-which(snpinfo$id == 'rs12186596'),]
     }
     snpinfo <- snpinfo[,c('chr','id','posg','pos','alt','ref')]
     write_bim(paste0("data/LD-clumping/snpinfo.",exposure,".",outcome,".",chr,".bim"),snpinfo)
   }
 }
+```
 
-# ----------------------- Select SNPs that are present in 1000 Genome reference panel -----------------------
+Download [1000 Genomes genotype data](https://www.internationalgenome.org/data/) and save it in data/ folder. Construct plink format genotype data for 1000G individudals of European ancestry.
+```r
 # mydir = 'data/LD-clumping/'
 # name<-"select_intersect"
 # for (chr in chr.list){
-#   filen<-paste0(mydir, "sh/", name, '_',exposure,'.', outcome,".", chr, ".sh")
-#   file.create(filen)
-#   zz <- file(filen, "w")
-#   cat("#$ -cwd", "", file = zz, sep = "\n")
-#   cat(paste0('#$ -o ',mydir,'logfile'), file = zz, sep = "\n")
-#   cat(paste0('#$ -e ',mydir,'logfile'), file = zz, sep = "\n")
-#   cat(paste0('cd ',mydir), "\n", file=zz)
-#   cat("\n", file=zz)
-#   cmd1 <- paste(paste0('plink2 --bfile 1000G_bial_nochild'),
+#   cmd1 <- paste(paste0('/dcl01/chatterj/data/jin/software/plink2 --bfile data/1000G_bial_nochild_europeans'),
 #                 paste0('--extract data/LD-clumping/snpinfo.',exposure,'.', outcome,'.',chr,".bim"),
-#                 paste0('--keep 1000G_Europeans.txt'),
+#                 #paste0('--keep data/1000G_Europeans.txt'),
 #                 paste0('--make-bed'),
 #                 paste0('--out data/LD-clumping/1000G.',exposure,'.',outcome,".",chr))
 #   system(cmd1)
 # }
+```
 
-
-# ----------------------- prepare the summary data as the input for LD Clumping -----------------------
+Generate the summary data files which will be used as the input for LD Clumping
+```r
 second.min = function(x) sort(x,decreasing=F)[2]
 for (chr in 1:22){
   sum.chrspecific = sumdata[sumdata[['Chr']] == chr,]
@@ -261,21 +191,13 @@ for (chr in 1:22){
     print(chr)
   }
 }
+```
 
-
-# ----------------------- LD Clumping -----------------------
+LD clumping
+```r
 # parameters for LD clumping
 r2=0.05; kb=1024
-name<-"ldclump"
 for (chr in c(1:22)){
-  filen<-paste0(mydir, "sh/", name, '_', exposure,'.', outcome,'.', chr, ".sh")
-  file.create(filen)
-  zz <- file(filen, "w")
-  cat("#$ -cwd", "", file = zz, sep = "\n")
-  #cat(paste0('#$ -o data/LD-clumping/logfile'), file = zz, sep = "\n")
-  #cat(paste0('#$ -e data/LD-clumping/logfile'), file = zz, sep = "\n")
-  cat(paste0('cd data/LD-clumping/'), "\n", file=zz)
-  cat("\n", file=zz)
   cmd1 <- paste0('/dcl01/chatterj/data/jin/software/plink --bfile data/LD-clumping/1000G.',exposure,'.',outcome,'.',chr,
                  ' --clump data/LD-clumping/snplist.',exposure,'.',outcome,'.',chr,'.rsid',
                  ' --clump-p1 ',alpha1,
@@ -285,9 +207,10 @@ for (chr in c(1:22)){
                  ' --out data/LD-clumping/',exposure,'.',outcome,'.',chr)
   system(cmd1)
 }
-# ------------------ create clumped SNP list ------------------
-select.type = setting1[set1,'select.type']
-#load(paste0('/dcl01/chatterj/data/jin/mr/sumdat/sumdata.inflammation-rhema-adj3-',select.type,'-p1=',alpha2,'-p2=',alpha1,'.RData'))
+```
+
+Create clumped SNP list
+```r
 chr = 1
 sumclumped = NULL
 temfile = paste0('data/LD-clumping/',exposure,'.', outcome,'.', chr, '.clumped')
@@ -339,8 +262,8 @@ for (k in 1:K){
   colnames(sumstats[[k]]) = c('rsid','Chr','Pos','A2','A1','beta','se','P')
   sumstats[[k]]$N = N.biomarker[k]
 }
-covresults = covinfo_inflammation(sumstats, out.path=ldsc.out.path, ldsc.path, python.path, ldscore.path = file.path(ldsc.path,"eur_w_ld_chr/"), maf.thr, mergeallele = TRUE, K, screening = F)
-#coherit.mat: Genetic covariance matrix
+covresults = covinfo(sumstats, out.path=ldsc.out.path, ldsc.path, python.path, ldscore.path = file.path(ldsc.path,"eur_w_ld_chr/"), maf.thr, mergeallele = TRUE, K)
+#coherit.mat: Genetic correlation matrix
 #ldscint.mat: LD score regression intercept matrix.
 cor.mat = covresults$ldscint.mat
 colnames(cor.mat) = rownames(cor.mat) = traitvec
@@ -350,6 +273,7 @@ save(cor.mat, file = 'cor.mat.RData')
 
 ### Step 5: test the causal effect of chronic inflammation on RA
 
+Read clumped snp information.
 ``` r
 ############ read clumped snp info
 sumdata = sumdata[sumdata[['rsid']] %in% snp.clumped,]
@@ -357,7 +281,6 @@ p.exposure = apply(sumdata[,paste0('P.',traitvec)], 1, second.min)
 p.outcome = sumdata[[paste0('P.',outcome)]]
 
 
-######### Filtering: select the SNPs that reach genome-wide significance for Bks:
 Bkind = list()
 sign.level = ifelse(traitvec == 'CRP', alpha2, alpha1)
 for (i in 1:K){
@@ -365,7 +288,7 @@ for (i in 1:K){
 }
 Bkinds = colSums(matrix(unlist(Bkind),K,nrow(sumdata),byrow=T))
 ivind = which(Bkinds > 1) # index of the SNPs that are associated with at least one of the Bks
-ivindk = lapply(1:K,FUN=function(x){which(Bkind[[x]]>0)}) # index of the SNPs that are associated with each Bk
+ivindk = lapply(1:K,FUN=function(x){which(Bkind[[x]]>0)}) # index of the SNPs that are associated with each biomarker
 sumtable = sumdata[ivind,]
 
 which.significant = which(sapply(1:K,function(x){length(ivindk[[x]])})>0)
@@ -373,13 +296,16 @@ traitvec = traitvec[which.significant]
 K=length(traitvec)
 thetak.sign = thetak.sign[which.significant]
 
-##### may exclude some biomarkers:
 trait.spec = NULL
 for (trait in c(traitvec,outcome)){
   trait.spec = c(trait.spec, paste0(c("beta.", "se.", "P."), trait))
 }
 sumtable = sumtable[,c("Chr","Pos","rsid", "A1", "A2", trait.spec)]
-##### load between-biomarker correlation matrix: cor.mat
+```
+
+Estimate between-biomarker covariance matrices.
+```r
+##### load between-biomarker genetic correlation matrix: cor.mat
 load(paste0('data/cor.mat.RData'))
 cov.mat = matrix(0,K+1,K+1)
 cov.mat[2:(K+1),2:(K+1)] = cor.mat[traitvec,traitvec]
@@ -391,10 +317,11 @@ for (ni in 1:nrow(sumtable)){
   Cov.mat[[ni]] = beta.sd %*% cor.mat %*% beta.sd
 }
 beta.sd = diag(sapply(c(outcome,traitvec), function(x) median(sumtable[[paste0('se.',x)]])))
-c.mat = beta.sd %*% cor.mat %*% beta.sd
+```
 
-########## Data Analysis
-### data for ivw analysis
+Conduct hypothesis testing.
+```r
+### Data preparation for obtaining the IVW estimators.
 Bkind = list()
 ivw.ind = list()
 sign.level = ifelse(traitvec == 'CRP', alpha2, alpha1)
@@ -405,13 +332,13 @@ Bkinds = colSums(matrix(unlist(Bkind),K,nrow(sumtable),byrow=T))
 ivind = which(Bkinds > 1) # index of the SNPs that are associated with at least one of the Bks
 ivindk = lapply(1:K,FUN=function(x){which(Bkind[[x]]>0)}) # index of the SNPs that are associated with each Bk
 names(ivindk) = traitvec
-sumtable0=sumtable
 
-set.seed(2020)
-output = mrle(sumtable, thetak.sign, Cov.mat, alpha0)
+output = mrle(sumtable, thetak.sign, Cov.mat, alpha0, ivindk)
 ```
 
 
 ####  Reference:
-      1. Jin, J., Qi, G., Yu, Z. and Chatterjee, N., 2021. Mendelian Randomization Analysis Using Multiple Biomarkers of an Underlying Common Exposure. bioRxiv.  [https://doi.org/10.1101/2021.02.05.429979](https://doi.org/10.1101/2021.02.05.429979)
+      1. Bulik-Sullivan, B., Finucane, H.K., Anttila, V., Gusev, A., Day, F.R., Loh, P.R., Duncan, L., Perry, J.R., Patterson, N., Robinson, E.B. and Daly, M.J., 2015. An atlas of genetic correlations across human diseases and traits. Nature genetics, 47(11), p.1236. [https://www.nature.com/articles/ng.3406.pdf?origin=ppub](https://www.nature.com/articles/ng.3406.pdf?origin=ppub)
+      2. Bulik-Sullivan, B.K., Loh, P.R., Finucane, H.K., Ripke, S., Yang, J., Patterson, N., Daly, M.J., Price, A.L. and Neale, B.M., 2015. LD Score regression distinguishes confounding from polygenicity in genome-wide association studies. Nature genetics, 47(3), pp.291-295. [https://www.nature.com/articles/ng.3211](https://www.nature.com/articles/ng.3211)
+      3. Jin, J., Qi, G., Yu, Z. and Chatterjee, N., 2021. Mendelian Randomization Analysis Using Multiple Biomarkers of an Underlying Common Exposure. bioRxiv.  [https://doi.org/10.1101/2021.02.05.429979](https://doi.org/10.1101/2021.02.05.429979)
 

@@ -13,12 +13,14 @@
 #' The first variable corresponds to the outcome; the 2nd to the (K+1)-th variables correspond to
 #' the k-th observable traits.
 #' @param alpha0 significance level of the hypothesis test.
-#' @return A matrix of the infile
+#' @param ivindk a list of indices for the IVW for each biomarker that will be used
+#' for obtaining the IVW estimators.
+#' @return A matrix of the testing results based on IVW estimator and MRLE
 #' @export
 
-mrle = function(sumtable, thetak_sign, Cov.mat, alpha0 = 5e-2){
+mrle = function(sumtable, thetak_sign, Cov.mat, alpha0 = 5e-2, ivindk){
   n.rep=200; C = 1
-  K = (ncol(sumtable)-6)/3-1
+  K = (ncol(sumtable)-5)/3-1
   traitvec = sapply(1:K,function(x){strsplit(colnames(sumtable)[5+3*x],'\\.')[[1]][2]})
   outcome = strsplit(colnames(sumtable)[5+3*(K+1)],'\\.')[[1]][2]
   ##### GWAS summary statistics for Y (outcome):
@@ -36,7 +38,7 @@ mrle = function(sumtable, thetak_sign, Cov.mat, alpha0 = 5e-2){
   x = cbind(sbetay,ssigmay,sapply(1:K,FUN=function(x){sbetaBk[[x]]}),sapply(1:K,FUN=function(x){ssigmaBk[[x]]}))
   ####### 1. IVW Estimator:
   #### assume that we know the sign of thetak:
-  ivw.results = ivwout(sbetaBk,ssigmaBk,sbetay,ssigmay,multiplebiom=T)
+  ivw.results = ivwout(sbetaBk,ssigmaBk,sbetay,ssigmay,ivindk,multiplebiom=T)
 
   set.seed(2021)
   #### assume that we know the sign of thetak:
@@ -44,7 +46,7 @@ mrle = function(sumtable, thetak_sign, Cov.mat, alpha0 = 5e-2){
   d = K*(K+3)/2
   p = 2*K+1
   # number of constraits met
-  p.constraint = (K<5) * (p-2) + (K==5) * (p-4) + (K==6)*(p-4) + (K==8) * (p-7)
+  p.constraint = (K<5) * (p-2) + (K==5) * (p-3) + (K==6)*(p-4) + (K==8) * (p-7)
   eta.est = list()
   T.F = numeric(); T.F.max = 1e5
   diff.thr1 = 1e-30; diff.thr2 = 1e-30
@@ -175,15 +177,12 @@ mrle = function(sumtable, thetak_sign, Cov.mat, alpha0 = 5e-2){
     p.GMM = 2*pnorm(abs(est.GMM/se.GMM),0,1,lower.tail = F)
     rej.GMM = ifelse(abs(est.GMM/se.GMM)>z0,1,0)
   }
-  # results = list(P.MRLE = as.numeric(signif(p.GMM,3)),
-  #                Rejection.MRLE = ifelse(as.numeric(rej.GMM)==0, 'No', 'Yes'),
-  #                Direction.mu = sign(as.numeric(etahat[1])))
-
-  results = rbind(matrix(c(unlist(ivw.results[[3]]), unlist(ivw.results[[4]]), sign(unlist(ivw.results[[1]]))),nrow=K,byrow = F),
+  results = rbind(matrix(c(as.numeric(ivw.results[[3]]), as.numeric(ivw.results[[4]]), sign(as.numeric(ivw.results[[1]]))),nrow=K,byrow = F),
                        matrix(c(p.GMM,rej.GMM,sign(est.GMM)),1,3))
   rownames(results) = c(paste0('IVW.',traitvec),'MRLE')
   colnames(results) = c('P-value','Reject','Direction')
   results = as.data.frame(results)
+  results = cbind(M = c(sapply(1:K, function(x){length(ivindk[[x]])}), M), results)
   results
 }
 
