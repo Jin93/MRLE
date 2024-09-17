@@ -6,7 +6,7 @@
 #' on a set of SNPs (instrumental variables) that are associated with
 #' at least two of the traits/biomarkers at specified thresholds of significance.
 #'
-#' @param sumtable the M by (K+1)*3+6 input matrix containing
+#' @param sumtable the M by (K+1)*3+5 input matrix containing GWAS summary statistics
 #' @param thetak_sign a vector of length K indicating the directions of the effect of the latent exposure on
 #' the traits/biomarkers
 #' @param Cov.mat the (K+1) by (K+1) estimated covariance matrix of the GWAS summary statistics.
